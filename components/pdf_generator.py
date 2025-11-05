@@ -31,11 +31,21 @@ class PDFGenerator(Component):
 
         try:
             # Import activity_generator here to avoid module-level import issues
-            scripts_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts')
+            # Use absolute path since __file__ may point to langflow package location
+            scripts_path = '/app/scripts'
+
+            # Fallback: try to calculate from component location if not in container
+            if not os.path.exists(scripts_path):
+                # We're not in the container, try relative path
+                scripts_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts')
+
             if scripts_path not in sys.path:
                 sys.path.insert(0, scripts_path)
 
             print(f"📂 Looking for activity_generator in: {scripts_path}")
+            print(f"📂 Directory exists: {os.path.exists(scripts_path)}")
+            if os.path.exists(scripts_path):
+                print(f"📂 Files in directory: {os.listdir(scripts_path)}")
 
             try:
                 from activity_generator import generate_booklet
