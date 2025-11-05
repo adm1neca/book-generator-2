@@ -30,8 +30,8 @@ class ClaudeProcessor(Component):
         MessageTextInput(
             name="model_name",
             display_name="Model Name",
-            info="Claude model to use. Try: claude-3-5-sonnet, claude-sonnet-4, or specific versions",
-            value="claude-3-5-sonnet",
+            info="Claude model to use. Try: claude-haiku-4-5-20251001, claude-sonnet-4, or specific versions",
+            value="claude-haiku-4-5-20251001",
             required=False
         ),
     ]
