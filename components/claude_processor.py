@@ -10,7 +10,7 @@ from datetime import datetime
 from anthropic import Anthropic
 
 class ClaudeProcessor(Component):
-    display_name = "Claude Activity Processor"
+    display_name = "Claude Activity Processor 2"
     description = "Processes pages through Claude API with variety tracking"
     icon = "brain"
 
