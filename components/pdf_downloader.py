@@ -21,8 +21,20 @@ class PDFDownloader(Component):
     ]
 
     def read_pdf(self) -> Data:
-        pdf_data = self.pdf_info.data
-        
+        # Handle both single Data object and list
+        if isinstance(self.pdf_info, list):
+            # If it's a list, take the first element
+            if not self.pdf_info:
+                return Data(data={
+                    'success': False,
+                    'error': 'Received empty list for pdf_info'
+                })
+            pdf_data = self.pdf_info[0].data if hasattr(self.pdf_info[0], 'data') else self.pdf_info[0]
+        elif hasattr(self.pdf_info, 'data'):
+            pdf_data = self.pdf_info.data
+        else:
+            pdf_data = self.pdf_info
+
         if not pdf_data.get('success'):
             self.status = "PDF generation failed"
             return Data(data={

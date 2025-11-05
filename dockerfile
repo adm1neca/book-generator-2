@@ -18,8 +18,8 @@ RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt
 # --- Add your files ---
 # Components: custom Langflow nodes (e.g., Render Booklet)
 COPY components /app/components
-# Workdir: your renderer, outputs live here (/app/workdir/out)
-COPY workdir /app/workdir
+# Activity generator script
+COPY activity_generator.py /app/activity_generator.py
 
 # Optional: create output dir now (prevents first-run surprises)
 RUN mkdir -p /app/workdir/out

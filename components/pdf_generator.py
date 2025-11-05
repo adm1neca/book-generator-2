@@ -1,4 +1,3 @@
-cat > pdf_generator.py << 'EOF'
 from langflow.custom import Component
 from langflow.io import Output, DataInput, MessageTextInput
 from langflow.schema import Data
@@ -23,7 +22,7 @@ class PDFGenerator(Component):
         MessageTextInput(
             name="script_path",
             display_name="Script Path",
-            value="/app/scripts/activity_generator.py",
+            value="/app/activity_generator.py",
             info="Path to the PDF generation script"
         ),
     ]
@@ -96,4 +95,3 @@ class PDFGenerator(Component):
                 'error': str(e),
                 'message': 'Unexpected error'
             })
-EOF
