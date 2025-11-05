@@ -142,32 +142,50 @@ class ClaudeProcessor(Component):
 
             raise
 
+    def _sanitize_theme(self, theme: str) -> str:
+        """Normalize and block branded themes to keep content safe."""
+        t = (theme or "").strip().lower()
+        # Block copyrighted brands and map to safe buckets
+        blocked_keywords = ["peppa", "paw patrol", "paw-patrol", "disney", "marvel", "pokemon"]
+        if any(b in t for b in blocked_keywords):
+            return "animals"
+        return t or "animals"
+
     def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
-        
+        theme = self._sanitize_theme(theme)
+
+        style_guard = f"""
+GLOBAL STYLE REQUIREMENTS:
+- Target age: 4–5 years old
+- Illustration style: thick black outlines, simple cute shapes, no shading
+- Lots of white space; minimal clutter
+- Friendly 1-sentence instructions
+- No copyrighted characters or brands
+- Keep the theme consistent across pages: '{theme}'
+"""
+
         if page_type == 'coloring':
-            # Greatly expanded subject options for variety
+            # Brand-free subjects organized by theme
             theme_subjects = {
-                'peppa-pig': ['pig', 'house', 'flower', 'heart', 'sun', 'car', 'tree', 'butterfly', 'apple', 'balloon', 'teddy bear', 'ball'],
-                'paw-patrol': ['dog', 'star', 'fire truck', 'bone', 'paw print', 'badge', 'helicopter', 'truck', 'mountain', 'sun', 'cloud', 'tree'],
+                'forest-friends': ['fox', 'bear', 'owl', 'rabbit', 'hedgehog', 'deer', 'squirrel', 'raccoon', 'snail', 'mushroom', 'acorn', 'pine tree'],
+                'under-the-sea': ['fish', 'dolphin', 'starfish', 'shell', 'turtle', 'seahorse', 'crab', 'octopus', 'bubble', 'coral'],
+                'farm-day': ['cow', 'chicken', 'sheep', 'pig', 'barn', 'tractor', 'duck', 'horse', 'hay bale'],
+                'space-explorer': ['rocket', 'planet', 'star', 'moon', 'astronaut', 'satellite', 'comet'],
                 'shapes': ['circle', 'square', 'triangle', 'star', 'heart', 'diamond', 'oval', 'rectangle', 'hexagon', 'pentagon'],
-                'colors': ['rainbow', 'sun', 'flower', 'butterfly', 'apple', 'balloon', 'car', 'house', 'tree', 'heart', 'star', 'bird'],
                 'animals': ['cat', 'dog', 'rabbit', 'bird', 'fish', 'elephant', 'giraffe', 'lion', 'bear', 'monkey', 'butterfly', 'bee', 'duck', 'frog']
             }
-            subjects = theme_subjects.get(theme, ['star', 'heart', 'flower', 'sun', 'tree', 'house', 'car', 'balloon', 'butterfly', 'apple'])
+            subjects = theme_subjects.get(theme, theme_subjects['animals'])
 
-            # Get what's already been used
             used = self.used_items.get('coloring', [])
             available = [s for s in subjects if s not in used]
 
-            # If we've used everything, reset
             if not available:
                 self.used_items['coloring'] = []
                 available = subjects
 
-            # Randomly select from available options
             selected = random.choice(available)
 
-            return f"""Create specifications for a simple coloring page for a 3-4 year old child.
+            return style_guard + f"""Create specifications for a simple coloring page for a 4–5 year old child.
 Theme: {theme}
 Page Number: {page_number}
 
@@ -184,15 +202,14 @@ Return ONLY valid JSON (no markdown, no code blocks):
   "subject": "{selected}",
   "description": "[2-3 word fun description of the {selected}]",
   "theme": "{theme}"
-}}
-
-Example: {{"title": "Color the {selected.title()}", "instruction": "Use your crayons to color me in!", "subject": "{selected}", "description": "Happy little {selected}", "theme": "{theme}"}}"""
+}}"""
 
         elif page_type == 'tracing':
-            # Expanded tracing options - letters, numbers, and simple shapes
-            options = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-                      '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-                      '○', '△', '□', '★', '♥']
+            options = [
+                'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
+                '1','2','3','4','5','6','7','8','9','0',
+                '○','△','□','★','♥'
+            ]
             used = self.used_items.get('tracing', [])
             available = [s for s in options if s not in used]
 
@@ -200,10 +217,11 @@ Example: {{"title": "Color the {selected.title()}", "instruction": "Use your cra
                 self.used_items['tracing'] = []
                 available = options
 
-            # Randomly select from available
             selected = random.choice(available)
 
-            return f"""Create a tracing worksheet for preschoolers.
+            title_kind = "Letter" if selected.isalpha() else ("Number" if selected.isdigit() else "Shape")
+
+            return style_guard + f"""Create a tracing worksheet for preschoolers.
 Theme: {theme}
 Page: {page_number}
 
@@ -215,23 +233,19 @@ You must use EXACTLY: "{selected}"
 
 Return ONLY valid JSON:
 {{
-  "title": "Trace the {'Letter' if selected.isalpha() else 'Number' if selected.isdigit() else 'Shape'} {selected}",
+  "title": "Trace the {title_kind} {selected}",
   "content": "{selected}",
   "instruction": "Trace over the dotted lines",
   "repetitions": 12,
   "theme": "{theme}"
-}}
-
-Example: {{"title": "Trace the {'Letter' if selected.isalpha() else 'Number' if selected.isdigit() else 'Shape'} {selected}", "content": "{selected}", "instruction": "Trace over the dotted lines", "repetitions": 12, "theme": "{theme}"}}"""
+}}"""
 
         elif page_type == 'counting':
-            # Expanded counting options
             count_options = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+            # Keep items neutral; renderer will theme-ify visuals downstream
             item_options = ['circle', 'star', 'heart', 'square', 'triangle', 'apple', 'flower', 'car', 'ball', 'balloon', 'butterfly', 'fish']
 
             used = self.used_items.get('counting', [])
-
-            # Create combinations and filter used ones
             all_combinations = [f"{count}-{item}" for count in count_options for item in item_options]
             available = [c for c in all_combinations if c not in used]
 
@@ -239,11 +253,10 @@ Example: {{"title": "Trace the {'Letter' if selected.isalpha() else 'Number' if 
                 self.used_items['counting'] = []
                 available = all_combinations
 
-            # Randomly pick from available
             choice = random.choice(available)
             count_str, item = choice.split('-')
 
-            return f"""Create a counting exercise for preschoolers.
+            return style_guard + f"""Create a counting exercise for preschoolers.
 Theme: {theme}
 Page: {page_number}
 
@@ -263,7 +276,7 @@ Return ONLY valid JSON:
 }}"""
 
         elif page_type == 'maze':
-            return f"""Create a maze title for preschoolers.
+            return style_guard + f"""Create a maze title for preschoolers.
 Theme: {theme}
 
 Return ONLY valid JSON:
@@ -275,7 +288,7 @@ Return ONLY valid JSON:
 }}"""
 
         elif page_type == 'matching':
-            return f"""Create a matching exercise for preschoolers.
+            return style_guard + f"""Create a matching exercise for preschoolers.
 Theme: {theme}
 
 Create EXACTLY 4 pairs using variety.
@@ -294,7 +307,6 @@ Return ONLY valid JSON:
 }}"""
 
         elif page_type == 'dot-to-dot':
-            # Expanded dot-to-dot shapes with variety
             shape_options = ['star', 'circle', 'heart', 'square', 'triangle', 'diamond', 'house', 'tree', 'flower', 'butterfly', 'fish', 'apple']
             used = self.used_items.get('dot-to-dot', [])
             available = [s for s in shape_options if s not in used]
@@ -303,10 +315,9 @@ Return ONLY valid JSON:
                 self.used_items['dot-to-dot'] = []
                 available = shape_options
 
-            # Randomly select from available
             selected = random.choice(available)
 
-            return f"""Create a dot-to-dot exercise.
+            return style_guard + f"""Create a dot-to-dot exercise.
 Theme: {theme}
 Page: {page_number}
 
