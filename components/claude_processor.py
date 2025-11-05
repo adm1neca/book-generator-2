@@ -30,8 +30,8 @@ class ClaudeProcessor(Component):
         MessageTextInput(
             name="model_name",
             display_name="Model Name",
-            info="Claude model to use (default: claude-3-5-sonnet-20240620)",
-            value="claude-3-5-sonnet-20240620",
+            info="Claude model to use. Try: claude-3-5-sonnet, claude-sonnet-4, or specific versions",
+            value="claude-3-5-sonnet",
             required=False
         ),
     ]
@@ -76,7 +76,7 @@ class ClaudeProcessor(Component):
             client = Anthropic(api_key=api_key)
 
             # Get model name from input, default if not provided
-            model = getattr(self, 'model_name', 'claude-3-5-sonnet-20240620') or 'claude-3-5-sonnet-20240620'
+            model = getattr(self, 'model_name', 'claude-3-5-sonnet') or 'claude-3-5-sonnet'
             print(f"🤖 Using model: {model}")
 
             # Call Claude using the SDK
@@ -119,15 +119,17 @@ class ClaudeProcessor(Component):
             # Check if it's a 404 model not found error
             if "404" in str(e) or "not_found" in str(e):
                 print("💡 TIP: Model not found. Try changing the Model Name input to:")
-                print("   - claude-3-5-sonnet-20240620 (June 2024 - more widely available)")
-                print("   - claude-3-5-sonnet-20241022 (Oct 2024 - newer, may need access)")
+                print("   - claude-3-5-sonnet (alias - auto-routes to latest)")
+                print("   - claude-sonnet-4 (newer Sonnet 4 model)")
+                print("   - claude-3-7-sonnet-20250219 (Claude 3.7)")
+                print("   - Check your API key has access to these models")
 
             self.log(f"\n{'='*60}")
             self.log(f"❌ ERROR calling Claude (Page {page_number})")
             self.log(f"{'='*60}")
             self.log(f"Error: {error_msg}")
             if "404" in str(e) or "not_found" in str(e):
-                self.log("💡 TIP: Try a different model name in the Model Name input field")
+                self.log("💡 TIP: Try claude-3-5-sonnet, claude-sonnet-4, or check API key access")
             self.log(f"{'='*60}\n")
 
             # Store error in logs
