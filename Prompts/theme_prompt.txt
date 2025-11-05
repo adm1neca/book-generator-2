@@ -1,0 +1,6 @@
+Theme: {{theme}}
+Age Range: {{age_range}}
+
+Create 6–12 pages of activity content.
+Ensure pages vary in type. Encourage imagination.
+Return JSON only.

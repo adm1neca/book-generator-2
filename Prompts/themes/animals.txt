@@ -1,0 +1,7 @@
+Theme = Animals
+Include activities like:
+- Find the animal
+- Color the animal
+- Match the footprints
+- Invent a new animal
+Keep tone friendly and curious.

@@ -1,0 +1,8 @@
+# Core for your renderer & schema checks
+reportlab==4.*
+pillow==10.*
+jsonschema==4.*
+
+# Handy extras you might use later (safe to keep)
+requests==2.*
+pydantic==2.*

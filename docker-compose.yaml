@@ -1,0 +1,19 @@
+## version is obsolete , removed version: "3.9"
+services:
+  langflow:
+    build:
+      context: .
+      dockerfile: Dockerfile    # adjust if your filename differs
+    container_name: langflow-custom
+    ports:
+      - "7860:7860"
+    environment:
+      - LANGFLOW_AUTO_LOGIN=true
+      - LANGFLOW_SUPERUSER=true
+      - LANGFLOW_COMPONENTS_PATH=/app/components
+    # Mount if you want to iterate on files without rebuilding
+    volumes:
+      - ./components:/app/components
+      - ./workdir:/app/workdir
+      - ./data:/app/langflow       # keeps flows & settings across runs
+    restart: unless-stopped

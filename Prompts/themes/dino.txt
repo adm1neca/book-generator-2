@@ -1,0 +1,6 @@
+Theme = Dinosaurs
+Activities:
+- Describe what a baby dinosaur might look like
+- Draw a dinosaur habitat
+- Match the dinosaur to its food
+Keep tone adventurous but not scary.
