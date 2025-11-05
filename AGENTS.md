@@ -55,3 +55,5 @@ This agent generates multi-page children’s activity booklets using:
 - Introduce multiple visual layout templates.
 - Add difficulty scaling per age group.
 - Export as EPUB / web flipbook viewer.
+
+- ReportLab's PDFPathObject lacks quadratic Bezier support; convert quad segments to cubic curveTo control points when porting artwork.
