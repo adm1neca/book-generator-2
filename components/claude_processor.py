@@ -27,6 +27,13 @@ class ClaudeProcessor(Component):
             info="Your Claude API key",
             required=True
         ),
+        MessageTextInput(
+            name="model_name",
+            display_name="Model Name",
+            info="Claude model to use (default: claude-3-5-sonnet-20240620)",
+            value="claude-3-5-sonnet-20240620",
+            required=False
+        ),
     ]
 
     outputs = [
@@ -68,9 +75,13 @@ class ClaudeProcessor(Component):
             # Initialize Anthropic client
             client = Anthropic(api_key=api_key)
 
+            # Get model name from input, default if not provided
+            model = getattr(self, 'model_name', 'claude-3-5-sonnet-20240620') or 'claude-3-5-sonnet-20240620'
+            print(f"🤖 Using model: {model}")
+
             # Call Claude using the SDK
             message = client.messages.create(
-                model="claude-3-5-sonnet-20240620",
+                model=model,
                 max_tokens=1024,
                 messages=[
                     {
@@ -104,10 +115,19 @@ class ClaudeProcessor(Component):
         except Exception as e:
             error_msg = f"API Error: {str(e)}"
             print(f"❌ ERROR calling Claude API for page {page_number}: {error_msg}")
+
+            # Check if it's a 404 model not found error
+            if "404" in str(e) or "not_found" in str(e):
+                print("💡 TIP: Model not found. Try changing the Model Name input to:")
+                print("   - claude-3-5-sonnet-20240620 (June 2024 - more widely available)")
+                print("   - claude-3-5-sonnet-20241022 (Oct 2024 - newer, may need access)")
+
             self.log(f"\n{'='*60}")
             self.log(f"❌ ERROR calling Claude (Page {page_number})")
             self.log(f"{'='*60}")
             self.log(f"Error: {error_msg}")
+            if "404" in str(e) or "not_found" in str(e):
+                self.log("💡 TIP: Try a different model name in the Model Name input field")
             self.log(f"{'='*60}\n")
 
             # Store error in logs
