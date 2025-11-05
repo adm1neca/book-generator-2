@@ -180,7 +180,7 @@ def test_imports_check():
         'from datetime import datetime',
         'import json',
         'import re',
-        'import requests',
+        'from anthropic import Anthropic',
         'import time'
     ]
 
