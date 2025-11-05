@@ -5,10 +5,6 @@ from typing import List
 import sys
 import os
 
-# Add scripts directory to path to import activity_generator
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts'))
-from activity_generator import generate_booklet
-
 class PDFGenerator(Component):
     display_name = "PDF Generator"
     description = "Generates PDF booklet from processed activity pages"
@@ -34,6 +30,27 @@ class PDFGenerator(Component):
         print("="*60)
 
         try:
+            # Import activity_generator here to avoid module-level import issues
+            scripts_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts')
+            if scripts_path not in sys.path:
+                sys.path.insert(0, scripts_path)
+
+            print(f"📂 Looking for activity_generator in: {scripts_path}")
+
+            try:
+                from activity_generator import generate_booklet
+                print("✅ activity_generator imported successfully")
+            except ImportError as e:
+                error_msg = f"Failed to import activity_generator: {str(e)}"
+                print(f"❌ {error_msg}")
+                print(f"   sys.path: {sys.path}")
+                print(f"   __file__: {__file__}")
+                self.status = "Import error"
+                return Data(data={
+                    'success': False,
+                    'error': error_msg,
+                    'scripts_path': scripts_path
+                })
             # Validate input
             if not self.processed_pages:
                 error_msg = "No pages provided to generate PDF"
