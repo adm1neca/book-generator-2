@@ -328,7 +328,6 @@ Return ONLY valid JSON:
 
     def process_pages(self) -> List[Data]:
         processed = []
-        total = len(self.pages)
 
         # Reset tracking for new run
         self.used_items = {
@@ -341,7 +340,30 @@ Return ONLY valid JSON:
         self.session_start = datetime.now()
 
         self.log("\n🚀 Starting Claude Activity Generation")
+
+        # Debug: Check if pages input exists
+        if not hasattr(self, 'pages'):
+            self.log("❌ ERROR: 'pages' attribute not found!")
+            self.log("This might be a Langflow input issue.")
+            self.save_detailed_logs()
+            return []
+
+        if self.pages is None:
+            self.log("❌ ERROR: 'pages' is None!")
+            self.log("No pages were passed to the component.")
+            self.save_detailed_logs()
+            return []
+
+        total = len(self.pages)
+
+        if total == 0:
+            self.log("⚠️ WARNING: Received 0 pages to process!")
+            self.log("Check that the pages input is connected and providing data.")
+            self.save_detailed_logs()
+            return []
+
         self.log(f"Total pages to process: {total}\n")
+        self.log(f"Pages input type: {type(self.pages)}")
 
         for idx, page_data_obj in enumerate(self.pages):
             page = page_data_obj.data
