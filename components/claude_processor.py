@@ -342,6 +342,12 @@ Return ONLY valid JSON:
             return None
 
     def process_pages(self) -> List[Data]:
+        # Immediate log to verify component is being called
+        self.status = "Claude Activity Processor started!"
+        self.log("="*60)
+        self.log("🚀 CLAUDE ACTIVITY PROCESSOR INITIALIZED")
+        self.log("="*60)
+
         processed = []
 
         # Reset tracking for new run
@@ -377,8 +383,9 @@ Return ONLY valid JSON:
             self.save_detailed_logs()
             return []
 
-        self.log(f"Total pages to process: {total}\n")
-        self.log(f"Pages input type: {type(self.pages)}")
+        self.log(f"📋 Total pages to process: {total}")
+        self.log(f"📋 Pages input type: {type(self.pages)}")
+        self.log(f"📋 First page preview: {self.pages[0].data if total > 0 else 'N/A'}\n")
 
         for idx, page_data_obj in enumerate(self.pages):
             page = page_data_obj.data
