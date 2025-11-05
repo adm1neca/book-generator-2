@@ -23,6 +23,8 @@ COPY activity_generator.py /app/activity_generator.py
 
 # Optional: create output dir now (prevents first-run surprises)
 RUN mkdir -p /app/workdir/out
+RUN mkdir -p /app/scripts
+COPY scripts /app/scripts
 
 # Environment: tell Langflow where to find your components
 ENV LANGFLOW_COMPONENTS_PATH=/app/components

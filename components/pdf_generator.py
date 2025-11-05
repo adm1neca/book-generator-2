@@ -1,22 +1,21 @@
 from langflow.custom import Component
-from langflow.io import Output, DataInput, MessageTextInput
+from langflow.io import MessageTextInput, Output, SecretStrInput, DataInput
 from langflow.schema import Data
+from langchain_anthropic import ChatAnthropic
 from typing import List
 import json
-import subprocess
-from datetime import datetime
-import os
+import re
 
-class PDFGenerator(Component):
-    display_name = "PDF Generator"
-    description = "Generates PDF from processed pages"
-    icon = "file-text"
+class ClaudeProcessor(Component):
+    display_name = "Claude Activity Processor"
+    description = "Processes pages through Claude API to generate activity specifications"
+    icon = "brain"
 
     inputs = [
         DataInput(
-            name="processed_pages",
-            display_name="Processed Pages",
-            info="Pages with Claude-generated content",
+            name="pages",
+            display_name="Pages",
+            info="List of page configurations",
             is_list=True
         ),
         MessageTextInput(
@@ -28,58 +27,133 @@ class PDFGenerator(Component):
     ]
 
     outputs = [
-        Output(display_name="PDF Info", name="pdf_info", method="generate_pdf"),
+        Output(display_name="Processed Pages", name="processed_pages", method="process_pages"),
     ]
 
-    def generate_pdf(self) -> Data:
-        # Prepare data
-        pages = [page.data for page in self.processed_pages]
+    def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
+        prompts = {
+            'coloring': f"""Create specifications for a simple coloring page for a 3-4 year old child.
+Theme: {theme}
+Page Number: {page_number}
+
+Requirements:
+- Large, simple shapes suitable for preschoolers
+- Subject appropriate for theme
+- For Peppa Pig: pig-related items
+- For Paw Patrol: dog/puppy items
+- For Shapes: geometric shapes
+- For Colors: colorful items
+- For Animals: simple animals
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "title": "Color the [subject]",
+  "instruction": "Use your crayons to color me in!",
+  "subject": "[one word: pig, star, dog, heart, flower, house, etc]",
+  "description": "[simple 2-3 words]",
+  "theme": "{theme}"
+}}""",
+
+            'tracing': f"""Create a tracing worksheet for preschoolers (ages 3-4).
+Theme: {theme}
+
+Choose ONE letter (A-Z) or number (1-10) appropriate for the theme.
+
+Return ONLY valid JSON:
+{{
+  "title": "Trace the [Letter/Number]",
+  "content": "[single letter or number]",
+  "instruction": "Trace over the dotted lines",
+  "repetitions": 12,
+  "theme": "{theme}"
+}}""",
+
+            'counting': f"""Create a counting exercise for preschoolers (ages 3-4).
+Theme: {theme}
+
+Choose a number between 3-8 and a simple item to count.
+For items use ONLY: circle, star, heart, or square
+
+Return ONLY valid JSON:
+{{
+  "title": "Count the [items]",
+  "count": [number 3-8],
+  "item": "[circle, star, heart, or square]",
+  "instruction": "Count how many you see",
+  "theme": "{theme}"
+}}""",
+
+            'maze': f"""Create a simple maze title for preschoolers.
+Theme: {theme}
+
+Return ONLY valid JSON:
+{{
+  "title": "[Theme] Maze",
+  "instruction": "Help find the way!",
+  "difficulty": "easy",
+  "theme": "{theme}"
+}}""",
+
+            'matching': f"""Create a matching exercise for preschoolers (ages 3-4).
+Theme: {theme}
+
+Create 4 pairs using shapes, numbers, or colors.
+For shapes use: circle, square, triangle, star, heart
+For colors use hex: #FF0000 (red), #0000FF (blue), #FFFF00 (yellow), #00FF00 (green)
+
+Return ONLY valid JSON:
+{{
+  "title": "Match the Pairs!",
+  "instruction": "Draw lines to connect matching items",
+  "pairs": [
+    [{{"type": "number", "value": 1}}, {{"type": "number", "value": 1}}],
+    [{{"type": "shape", "shape": "circle"}}, {{"type": "shape", "shape": "circle"}}],
+    [{{"type": "color", "color": "#FF0000"}}, {{"type": "color", "color": "#FF0000"}}],
+    [{{"type": "shape", "shape": "star"}}, {{"type": "shape", "shape": "star"}}]
+  ],
+  "theme": "{theme}"
+}}""",
+
+            'dot-to-dot': f"""Create a dot-to-dot exercise for preschoolers.
+Theme: {theme}
+
+Use 12-15 dots. Choose shape: star, circle, or heart
+
+Return ONLY valid JSON:
+{{
+  "title": "Connect the Dots",
+  "instruction": "Connect the dots from 1 to [number]",
+  "dots": [number 12-15],
+  "shape": "[star, circle, or heart]",
+  "theme": "{theme}"
+}}"""
+        }
         
-        # Sort by page number
-        pages.sort(key=lambda x: x.get('pageNumber', 0))
+        return prompts.get(page_type, prompts['coloring'])
+
+    def process_pages(self) -> List[Data]:
+        llm = ChatAnthropic(
+            model="claude-3-5-sonnet-20241022",
+            anthropic_api_key=self.anthropic_api_key,
+            max_tokens=1024
+        )
         
-        # Generate filenames
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        json_file = f'/tmp/booklet_{timestamp}.json'
-        pdf_file = f'/tmp/booklet_{timestamp}.pdf'
+        processed = []
+        total = len(self.pages)
         
-        # Write JSON file
-        with open(json_file, 'w') as f:
-            json.dump(pages, f, indent=2)
-        
-        self.status = f"JSON written to {json_file}"
-        
-        # Execute Python script
-        try:
-            cmd = ['python3', self.script_path, json_file, pdf_file]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+        for idx, page_data_obj in enumerate(self.pages):
+            page = page_data_obj.data
+            page_type = page['type']
+            theme = page['theme']
+            page_number = page['pageNumber']
             
-            # Check if PDF was created
-            if os.path.exists(pdf_file):
-                file_size = os.path.getsize(pdf_file)
-                self.status = f"PDF generated successfully! Size: {file_size} bytes"
-                
-                return Data(data={
-                    'success': True,
-                    'pdf_file': pdf_file,
-                    'json_file': json_file,
-                    'total_pages': len(pages),
-                    'file_size': file_size,
-                    'message': f'PDF created: {pdf_file}',
-                    'stdout': result.stdout
-                })
-            else:
-                return Data(data={
-                    'success': False,
-                    'error': 'PDF file not created',
-                    'stdout': result.stdout,
-                    'stderr': result.stderr
-                })
+            self.status = f"Processing page {idx + 1}/{total} - {page_type}"
+            
+            prompt = self.get_prompt_for_type(page_type, theme, page_number)
+            
+            try:
+                response = llm.invoke(prompt)
+                content = response.content
                 
         except subprocess.CalledProcessError as e:
             self.status = "PDF generation failed!"
