@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# activity_generator.py
+
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -6,18 +9,18 @@ import json
 import sys
 import math
 import random
+import argparse
+from typing import List, Dict, Any
 
 # ============================================================
-# Kid-perfect helpers (Section 4 polish baked in)
+# Kid-perfect helpers
 # ============================================================
 
 def kid_stroke(width, height):
-    # ~1.2% of short side, clamped for A4/Letter
     sw = int(min(width, height) * 0.012)
     return max(4, min(sw, 12))
 
 def kid_margin(width, height):
-    # generous white margins
     return int(min(width, height) * 0.07)
 
 def center_box(width, height):
@@ -25,7 +28,7 @@ def center_box(width, height):
     return m, m, width - 2*m, height - 2*m
 
 # ============================================================
-# Procedural subject renderers (simple, bold, brand-free)
+# Procedural subject renderers
 # ============================================================
 
 def draw_circle(c, W, H):
@@ -40,19 +43,7 @@ def draw_rounded_square(c, W, H):
     r = s * 0.18
     x0 = (W - s) / 2
     y0 = (H - s) / 2
-    # Path for rounded rect (approx with arcs)
-    p = c.beginPath()
-    p.moveTo(x0 + r, y0)
-    p.lineTo(x0 + s - r, y0)
-    p.arcTo(x0 + s - 2*r, y0, x0 + s, y0 + 2*r, startAng=90, extent=-90)
-    p.lineTo(x0 + s, y0 + s - r)
-    p.arcTo(x0 + s - 2*r, y0 + s - 2*r, x0 + s, y0 + s, startAng=0, extent=-90)
-    p.lineTo(x0 + r, y0 + s)
-    p.arcTo(x0, y0 + s - 2*r, x0 + 2*r, y0 + s, startAng=270, extent=-90)
-    p.lineTo(x0, y0 + r)
-    p.arcTo(x0, y0, x0 + 2*r, y0 + 2*r, startAng=180, extent=-90)
-    p.close()
-    c.drawPath(p, stroke=1, fill=0)
+    c.roundRect(x0, y0, s, s, r, stroke=1, fill=0)
 
 def draw_triangle(c, W, H):
     x, y, w, h = center_box(W, H)
@@ -75,7 +66,7 @@ def draw_star(c, W, H, points=5):
         ang = math.pi/2 + i * math.pi/points
         rad = R if i % 2 == 0 else r
         pts.append((cx + rad*math.cos(ang), cy - rad*math.sin(ang)))
-    p = canvas.Path()
+    p = c.beginPath()
     p.moveTo(pts[0][0], pts[0][1])
     for px, py in pts[1:]:
         p.lineTo(px, py)
@@ -97,7 +88,6 @@ def draw_cloud(c, W, H):
     x, y, w, h = center_box(W, H)
     cx, cy = W/2, H/2
     R = min(w, h)*0.20
-    # three bumps + base line
     c.circle(cx - 1.1*R, cy + 0.2*R, 0.9*R, stroke=1, fill=0)
     c.circle(cx - 0.3*R, cy - 0.2*R, 1.05*R, stroke=1, fill=0)
     c.circle(cx + 0.7*R, cy + 0.1*R, 0.85*R, stroke=1, fill=0)
@@ -106,14 +96,12 @@ def draw_cloud(c, W, H):
 def draw_leaf(c, W, H):
     cx, cy = W/2, int(H*0.52)
     s = min(W, H) * 0.48
-    # outline
     p = c.beginPath()
     p.moveTo(cx, cy - 0.60*s)
     p.curveTo(cx + 0.55*s, cy - 0.55*s, cx + 0.65*s, cy + 0.10*s, cx, cy + 0.65*s)
     p.curveTo(cx - 0.65*s, cy + 0.10*s, cx - 0.55*s, cy - 0.55*s, cx, cy - 0.60*s)
     p.close()
     c.drawPath(p, stroke=1, fill=0)
-    # midrib + simple veins
     c.line(cx, cy - 0.55*s, cx, cy + 0.72*s)
     vr = c.beginPath()
     vr.moveTo(cx, cy + 0.10*s)
@@ -127,14 +115,12 @@ def draw_leaf(c, W, H):
 def draw_acorn(c, W, H):
     cx, cy = W/2, H/2
     s = min(W, H) * 0.50
-    # body
     body = c.beginPath()
     body.moveTo(cx, cy - 0.10*s)
     body.curveTo(cx + 0.48*s, cy - 0.05*s, cx + 0.48*s, cy + 0.55*s, cx, cy + 0.60*s)
     body.curveTo(cx - 0.48*s, cy + 0.55*s, cx - 0.48*s, cy - 0.05*s, cx, cy - 0.10*s)
     body.close()
     c.drawPath(body, stroke=1, fill=0)
-    # cap dome + scallop
     cap_top = c.beginPath()
     cap_top.moveTo(cx - 0.55*s, cy - 0.02*s)
     cap_top.curveTo(cx - 0.15*s, cy - 0.35*s, cx + 0.15*s, cy - 0.35*s, cx + 0.55*s, cy - 0.02*s)
@@ -144,7 +130,6 @@ def draw_acorn(c, W, H):
     sc.curveTo(cx - 0.40*s, cy + 0.10*s, cx - 0.20*s, cy + 0.10*s, cx - 0.05*s, cy - 0.02*s)
     sc.curveTo(cx + 0.10*s, cy + 0.10*s, cx + 0.30*s, cy + 0.10*s, cx + 0.45*s, cy - 0.02*s)
     c.drawPath(sc, stroke=1, fill=0)
-    # stem
     st = c.beginPath()
     st.moveTo(cx + 0.10*s, cy - 0.30*s)
     st.curveTo(cx + 0.20*s, cy - 0.45*s, cx + 0.05*s, cy - 0.55*s, cx - 0.05*s, cy - 0.48*s)
@@ -160,27 +145,14 @@ def draw_mushroom(c, W, H):
     c.drawPath(cap, stroke=1, fill=0)
     brim = c.beginPath()
     brim.moveTo(cx - 0.55*s, cy)
-    brim.quadTo(cx, cy + 0.15*s, cx + 0.55*s, cy)
+    brim.curveTo(cx - 0.20*s, cy + 0.25*s, cx + 0.20*s, cy + 0.25*s, cx + 0.55*s, cy)
     c.drawPath(brim, stroke=1, fill=0)
-    # stem as rounded rect
     wst = 0.24*s; hst = 0.55*s; rx = 0.10*s
     x0, y0 = cx - wst/2, cy
-    p = c.beginPath()
-    p.moveTo(x0 + rx, y0)
-    p.lineTo(x0 + wst - rx, y0)
-    p.arcTo(x0 + wst - 2*rx, y0, x0 + wst, y0 + 2*rx, startAng=90, extent=-90)
-    p.lineTo(x0 + wst, y0 + hst - rx)
-    p.arcTo(x0 + wst - 2*rx, y0 + hst - 2*rx, x0 + wst, y0 + hst, startAng=0, extent=-90)
-    p.lineTo(x0 + rx, y0 + hst)
-    p.arcTo(x0, y0 + hst - 2*rx, x0 + 2*rx, y0 + hst, startAng=270, extent=-90)
-    p.lineTo(x0, y0 + rx)
-    p.arcTo(x0, y0, x0 + 2*rx, y0 + 2*rx, startAng=180, extent=-90)
-    p.close()
-    c.drawPath(p, stroke=1, fill=0)
-    # a few dots
+    c.roundRect(x0, y0, wst, hst, rx, stroke=1, fill=0)
     c.circle(cx - 0.25*s, cy - 0.18*s, 0.06*s, stroke=1, fill=0)
     c.circle(cx + 0.15*s, cy - 0.22*s, 0.07*s, stroke=1, fill=0)
-    c.circle(cx, cy - 0.05*s, 0.05*s, stroke=1, fill=0)
+    c.circle(cx,          cy - 0.05*s, 0.05*s, stroke=1, fill=0)
 
 def draw_pine_tree(c, W, H):
     x, y, w, h = center_box(W, H)
@@ -196,21 +168,9 @@ def draw_pine_tree(c, W, H):
     tri(cy - 0.55*s, 0.55*s, cy - 0.25*s)
     tri(cy - 0.35*s, 0.70*s, cy - 0.05*s)
     tri(cy - 0.15*s, 0.85*s, cy + 0.15*s)
-    # trunk
     wst = 0.14*s; hst = 0.30*s; rx = 0.04*s
     x0, y0 = cx - wst/2, cy + 0.15*s
-    p = c.beginPath()
-    p.moveTo(x0 + rx, y0)
-    p.lineTo(x0 + wst - rx, y0)
-    p.arcTo(x0 + wst - 2*rx, y0, x0 + wst, y0 + 2*rx, startAng=90, extent=-90)
-    p.lineTo(x0 + wst, y0 + hst - rx)
-    p.arcTo(x0 + wst - 2*rx, y0 + hst - 2*rx, x0 + wst, y0 + hst, startAng=0, extent=-90)
-    p.lineTo(x0 + rx, y0 + hst)
-    p.arcTo(x0, y0 + hst - 2*rx, x0 + 2*rx, y0 + hst, startAng=270, extent=-90)
-    p.lineTo(x0, y0 + rx)
-    p.arcTo(x0, y0, x0 + 2*rx, y0 + 2*rx, startAng=180, extent=-90)
-    p.close()
-    c.drawPath(p, stroke=1, fill=0)
+    c.roundRect(x0, y0, wst, hst, rx, stroke=1, fill=0)
 
 def draw_sun(c, W, H):
     x, y, w, h = center_box(W, H)
@@ -236,7 +196,6 @@ def draw_raindrop(c, W, H):
     p.close()
     c.drawPath(p, stroke=1, fill=0)
 
-# subject -> renderer
 RENDERERS = {
     "circle": draw_circle,
     "rounded square": draw_rounded_square,
@@ -265,14 +224,14 @@ SYNONYMS = {
 }
 
 # ============================================================
-# Original generator, updated to use the above (Section 2)
+# Generator class
 # ============================================================
 
 class ActivityBookletGenerator:
     def __init__(self, output_file):
         self.c = canvas.Canvas(output_file, pagesize=A4)
         self.width, self.height = A4
-        self.margin = max(0.75 * inch, kid_margin(self.width, self.height))  # larger, breathy margins
+        self.margin = max(0.75 * inch, kid_margin(self.width, self.height))
 
     def draw_border(self):
         self.c.setStrokeColor(colors.HexColor('#FF69B4'))
@@ -289,7 +248,6 @@ class ActivityBookletGenerator:
     def draw_instruction(self, instruction, y_offset=80):
         self.c.setFont("Helvetica", 14)
         self.c.setFillColor(colors.black)
-        # keep it one short line, kid-friendly
         self.c.drawCentredString(self.width/2, self.height - y_offset, instruction)
 
     def _prep_kid_lines(self):
@@ -298,140 +256,16 @@ class ActivityBookletGenerator:
         self.c.setFillColor(colors.white)
 
     def create_coloring_page(self, page_data):
-        """Generate a coloring page using procedural renderers where possible."""
         self.draw_border()
         self.draw_title(page_data.get('title', 'Coloring Page'))
         self.draw_instruction(page_data.get('instruction', 'Use your favorite crayons!'))
-
         subject = (page_data.get('subject') or page_data.get('subjectHint') or 'circle').lower().strip()
         subject = SYNONYMS.get(subject, subject)
-
         self._prep_kid_lines()
-
-        # Prefer our clean procedural renderers when available
         renderer = RENDERERS.get(subject)
         if renderer:
             renderer(self.c, self.width, self.height)
-            return
-
-        # Keep some of your existing animal/objects as fallback (outline-only)
-        center_x = self.width / 2
-        center_y = self.height / 2
-
-        # PIG (outline-only now)
-        if 'pig' in subject:
-            self.c.circle(center_x, center_y, 100, stroke=1, fill=0)
-            self.c.ellipse(center_x - 80, center_y + 60, center_x - 40, center_y + 120, stroke=1, fill=0)
-            self.c.ellipse(center_x + 40, center_y + 60, center_x + 80, center_y + 120, stroke=1, fill=0)
-            self.c.circle(center_x - 30, center_y + 20, 12, stroke=1, fill=0)
-            self.c.circle(center_x + 30, center_y + 20, 12, stroke=1, fill=0)
-            self.c.ellipse(center_x - 40, center_y - 40, center_x + 40, center_y - 10, stroke=1, fill=0)
-            self.c.circle(center_x - 15, center_y - 25, 6, stroke=1, fill=0)
-            self.c.circle(center_x + 15, center_y - 25, 6, stroke=1, fill=0)
-
-        elif 'dog' in subject or 'puppy' in subject:
-            self.c.circle(center_x, center_y + 20, 80, stroke=1, fill=0)
-            self.c.ellipse(center_x - 100, center_y, center_x - 60, center_y + 80, stroke=1, fill=0)
-            self.c.ellipse(center_x + 60, center_y, center_x + 100, center_y + 80, stroke=1, fill=0)
-            self.c.circle(center_x - 25, center_y + 40, 10, stroke=1, fill=0)
-            self.c.circle(center_x + 25, center_y + 40, 10, stroke=1, fill=0)
-            nose = self.c.beginPath()
-            nose.moveTo(center_x, center_y)
-            nose.lineTo(center_x - 15, center_y + 15)
-            nose.lineTo(center_x + 15, center_y + 15)
-            nose.close()
-            self.c.drawPath(nose, stroke=1, fill=0)
-            self.c.arc(center_x - 30, center_y - 40, center_x + 30, center_y, 180, 360)
-
-        elif 'cat' in subject:
-            self.c.circle(center_x, center_y, 90, stroke=1, fill=0)
-            ear1 = self.c.beginPath()
-            ear1.moveTo(center_x - 60, center_y + 90)
-            ear1.lineTo(center_x - 70, center_y + 140)
-            ear1.lineTo(center_x - 40, center_y + 100)
-            ear1.close()
-            self.c.drawPath(ear1, stroke=1, fill=0)
-            ear2 = self.c.beginPath()
-            ear2.moveTo(center_x + 60, center_y + 90)
-            ear2.lineTo(center_x + 70, center_y + 140)
-            ear2.lineTo(center_x + 40, center_y + 100)
-            ear2.close()
-            self.c.drawPath(ear2, stroke=1, fill=0)
-            self.c.ellipse(center_x - 35, center_y + 10, center_x - 15, center_y + 40, stroke=1, fill=0)
-            self.c.ellipse(center_x + 15, center_y + 10, center_x + 35, center_y + 40, stroke=1, fill=0)
-            self.c.setLineWidth(max(2, kid_stroke(self.width, self.height) - 2))
-            self.c.line(center_x - 90, center_y + 10, center_x - 50, center_y + 15)
-            self.c.line(center_x - 90, center_y, center_x - 50, center_y)
-            self.c.line(center_x + 50, center_y + 15, center_x + 90, center_y + 10)
-            self.c.line(center_x + 50, center_y, center_x + 90, center_y)
-            self._prep_kid_lines()
-
-        elif 'butterfly' in subject:
-            self.c.ellipse(center_x - 8, center_y - 60, center_x + 8, center_y + 60, stroke=1, fill=0)
-            self.c.ellipse(center_x - 80, center_y + 20, center_x - 10, center_y + 100, stroke=1, fill=0)
-            self.c.ellipse(center_x + 10, center_y + 20, center_x + 80, center_y + 100, stroke=1, fill=0)
-            self.c.ellipse(center_x - 70, center_y - 60, center_x - 10, center_y + 10, stroke=1, fill=0)
-            self.c.ellipse(center_x + 10, center_y - 60, center_x + 70, center_y + 10, stroke=1, fill=0)
-            self.c.line(center_x - 5, center_y + 60, center_x - 20, center_y + 90)
-            self.c.line(center_x + 5, center_y + 60, center_x + 20, center_y + 90)
-            self.c.circle(center_x - 20, center_y + 90, 5, stroke=1, fill=0)
-            self.c.circle(center_x + 20, center_y + 90, 5, stroke=1, fill=0)
-
-        elif 'sun' in subject:
-            draw_sun(self.c, self.width, self.height)
-
-        elif 'balloon' in subject:
-            p = self.c.beginPath()
-            p.moveTo(center_x, center_y - 80)
-            p.curveTo(center_x - 80, center_y - 60, center_x - 80, center_y + 40, center_x, center_y + 80)
-            p.curveTo(center_x + 80, center_y + 40, center_x + 80, center_y - 60, center_x, center_y - 80)
-            self.c.drawPath(p, stroke=1, fill=0)
-            self.c.circle(center_x, center_y + 85, 6, stroke=1, fill=0)
-            self.c.line(center_x, center_y + 85, center_x, center_y + 150)
-
-        elif 'rainbow' in subject:
-            for i, shrink in enumerate([0, 15, 30, 45, 60, 75, 90]):
-                radius = 140 - shrink
-                self.c.arc(center_x - radius, center_y - 160,
-                           center_x + radius, center_y + 160, 0, 180)
-
-        elif 'triangle' in subject:
-            draw_triangle(self.c, self.width, self.height)
-
-        elif 'circle' in subject or 'ball' in subject:
-            draw_circle(self.c, self.width, self.height)
-
-        elif 'heart' in subject:
-            draw_heart(self.c, self.width, self.height)
-
-        elif 'star' in subject:
-            draw_star(self.c, self.width, self.height)
-
-        elif 'flower' in subject:
-            # simple 5-petal
-            r_center = 25
-            r_petal = 40
-            self.c.circle(center_x, center_y, r_center, stroke=1, fill=0)
-            for a in range(0, 360, 72):
-                rad = math.radians(a)
-                x = center_x + 70 * math.cos(rad)
-                y = center_y + 70 * math.sin(rad)
-                self.c.circle(x, y, r_petal, stroke=1, fill=0)
-
-        elif 'house' in subject:
-            self.c.rect(center_x - 80, center_y - 60, 160, 120, stroke=1, fill=0)
-            roof = self.c.beginPath()
-            roof.moveTo(center_x - 100, center_y + 60)
-            roof.lineTo(center_x, center_y + 140)
-            roof.lineTo(center_x + 100, center_y + 60)
-            roof.close()
-            self.c.drawPath(roof, stroke=1, fill=0)
-            self.c.rect(center_x - 25, center_y - 60, 50, 70, stroke=1, fill=0)
-            self.c.rect(center_x - 65, center_y + 10, 35, 35, stroke=1, fill=0)
-            self.c.rect(center_x + 30, center_y + 10, 35, 35, stroke=1, fill=0)
-
         else:
-            # gentle fallback: big friendly circle
             draw_circle(self.c, self.width, self.height)
 
     def create_tracing_page(self, page_data):
@@ -450,7 +284,7 @@ class ActivityBookletGenerator:
         self.c.setFont("Helvetica-Bold", 72)
         self.c.setDash(6, 6)
         self.c.setStrokeGray(0.5)
-        self.c.setFillGray(0.0)  # outlines only
+        self.c.setFillGray(0.0)
 
         for row in range(rows):
             for col in range(cols):
@@ -606,7 +440,7 @@ class ActivityBookletGenerator:
                     self.c.setFillColor(colors.HexColor(item.get('color', '#000000')))
                     self.c.circle(x, y, 25, stroke=1, fill=1)
                     self.c.setFillColor(colors.black)
-                except:
+                except Exception:
                     self.c.circle(x, y, 25, stroke=1, fill=0)
 
     def create_dot_to_dot_page(self, page_data):
@@ -658,7 +492,11 @@ class ActivityBookletGenerator:
     def save(self):
         self.c.save()
 
-def generate_booklet(pages_data, output_file):
+# ============================================================
+# Runner + TEST MODE
+# ============================================================
+
+def generate_booklet(pages_data: List[Dict[str, Any]], output_file: str):
     generator = ActivityBookletGenerator(output_file)
     for page in pages_data:
         page_type = page.get('type', 'coloring')
@@ -681,13 +519,41 @@ def generate_booklet(pages_data, output_file):
     generator.save()
     print(f"Booklet generated: {output_file}")
 
+def sample_pages() -> List[Dict[str, Any]]:
+    # 6-page friendly preview
+    return [
+        {"type": "coloring", "title": "Color the Leaf",      "instruction": "Use your favorite crayons!", "subject": "leaf"},
+        {"type": "coloring", "title": "Color the Acorn",     "instruction": "Big bold lines!",            "subject": "acorn"},
+        {"type": "coloring", "title": "Color the Mushroom",  "instruction": "Keep inside the lines!",     "subject": "mushroom"},
+        {"type": "coloring", "title": "Color the Pine Tree", "instruction": "One big outline!",           "subject": "pine tree"},
+        {"type": "coloring", "title": "Color the Cloud",     "instruction": "Add a sky if you like!",     "subject": "cloud"},
+        {"type": "coloring", "title": "Color the Square",    "instruction": "Go wild with colors!",       "subject": "rounded square"},
+    ]
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Generate a children's activity booklet PDF.")
+    p.add_argument("input_json", nargs="?", help="Path to input JSON (list of page specs).")
+    p.add_argument("output_pdf", nargs="?", help="Path to output PDF.")
+    p.add_argument("--test", action="store_true", help="Generate a 6-page test booklet without an input JSON.")
+    p.add_argument("--output", help="Output PDF path for --test mode (default: test.pdf).")
+    return p.parse_args()
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python3 activity_generator.py <input_json> <output_pdf>")
+    args = parse_args()
+
+    if args.test:
+        out = args.output or "test.pdf"
+        pages = sample_pages()
+        generate_booklet(pages, out)
+        sys.exit(0)
+
+    if not args.input_json or not args.output_pdf:
+        print("Usage:")
+        print("  python3 activity_generator.py <input_json> <output_pdf>")
+        print("  python3 activity_generator.py --test [--output test.pdf]")
         sys.exit(1)
-    input_json = sys.argv[1]
-    output_file = sys.argv[2]
-    with open(input_json, 'r') as f:
+
+    with open(args.input_json, "r") as f:
         pages_data = json.load(f)
-    generate_booklet(pages_data, output_file)
-    
+
+    generate_booklet(pages_data, args.output_pdf)
