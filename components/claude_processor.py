@@ -4,10 +4,10 @@ from langflow.schema import Data
 from typing import List
 import json
 import re
-import requests
 import time
 import random
 from datetime import datetime
+from anthropic import Anthropic
 
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor"
@@ -47,24 +47,7 @@ class ClaudeProcessor(Component):
         self.session_start = datetime.now()
 
     def call_claude(self, prompt: str, api_key: str, page_number: int = 0) -> str:
-        """Call Claude API directly via HTTP with detailed logging"""
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-        payload = {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 1024,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-
+        """Call Claude API using official Anthropic SDK with detailed logging"""
         # Log the prompt
         self.log(f"\n{'='*60}")
         self.log(f"📤 SENDING TO CLAUDE (Page {page_number})")
@@ -72,27 +55,59 @@ class ClaudeProcessor(Component):
         self.log(f"PROMPT:\n{prompt}")
         self.log(f"{'='*60}\n")
 
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        response_text = result['content'][0]['text']
+        try:
+            # Initialize Anthropic client
+            client = Anthropic(api_key=api_key)
 
-        # Log the response
-        self.log(f"\n{'='*60}")
-        self.log(f"📥 RECEIVED FROM CLAUDE (Page {page_number})")
-        self.log(f"{'='*60}")
-        self.log(f"RESPONSE:\n{response_text}")
-        self.log(f"{'='*60}\n")
+            # Call Claude using the SDK
+            message = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
 
-        # Store in detailed logs
-        self.detailed_logs.append({
-            'timestamp': datetime.now().isoformat(),
-            'page_number': page_number,
-            'prompt': prompt,
-            'response': response_text
-        })
+            # Extract response text
+            response_text = message.content[0].text
 
-        return response_text
+            # Log the response
+            self.log(f"\n{'='*60}")
+            self.log(f"📥 RECEIVED FROM CLAUDE (Page {page_number})")
+            self.log(f"{'='*60}")
+            self.log(f"RESPONSE:\n{response_text}")
+            self.log(f"{'='*60}\n")
+
+            # Store in detailed logs
+            self.detailed_logs.append({
+                'timestamp': datetime.now().isoformat(),
+                'page_number': page_number,
+                'prompt': prompt,
+                'response': response_text
+            })
+
+            return response_text
+
+        except Exception as e:
+            error_msg = f"API Error: {str(e)}"
+            self.log(f"\n{'='*60}")
+            self.log(f"❌ ERROR calling Claude (Page {page_number})")
+            self.log(f"{'='*60}")
+            self.log(f"Error: {error_msg}")
+            self.log(f"{'='*60}\n")
+
+            # Store error in logs
+            self.detailed_logs.append({
+                'timestamp': datetime.now().isoformat(),
+                'page_number': page_number,
+                'prompt': prompt,
+                'response': f"ERROR: {error_msg}"
+            })
+
+            raise
 
     def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
         
