@@ -3,8 +3,8 @@ reportlab==4.*
 pillow==10.*
 jsonschema==4.*
 
-# Claude API
-anthropic==0.39.*
+# Claude API - compatible with langchain-anthropic
+anthropic>=0.52.0
 
 # Handy extras you might use later (safe to keep)
 requests==2.*
