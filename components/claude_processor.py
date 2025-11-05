@@ -27,6 +27,13 @@ class ClaudeProcessor(Component):
             info="Your Claude API key",
             required=True
         ),
+        MessageTextInput(
+            name="model_name",
+            display_name="Model Name",
+            info="Claude model to use (default: claude-3-5-sonnet-20240620)",
+            value="claude-3-5-sonnet-20240620",
+            required=False
+        ),
     ]
 
     outputs = [
@@ -46,9 +53,18 @@ class ClaudeProcessor(Component):
         self.detailed_logs = []
         self.session_start = datetime.now()
 
+        # Early initialization logging
+        print("🔵 ClaudeProcessor.__init__() called")
+        try:
+            self.status = "ClaudeProcessor initialized"
+            self.log("🔵 ClaudeProcessor component initialized")
+        except Exception as e:
+            print(f"⚠️ Error in __init__ logging: {e}")
+
     def call_claude(self, prompt: str, api_key: str, page_number: int = 0) -> str:
         """Call Claude API using official Anthropic SDK with detailed logging"""
         # Log the prompt
+        print(f"\n📤 Calling Claude API for page {page_number}...")
         self.log(f"\n{'='*60}")
         self.log(f"📤 SENDING TO CLAUDE (Page {page_number})")
         self.log(f"{'='*60}")
@@ -59,9 +75,13 @@ class ClaudeProcessor(Component):
             # Initialize Anthropic client
             client = Anthropic(api_key=api_key)
 
+            # Get model name from input, default if not provided
+            model = getattr(self, 'model_name', 'claude-3-5-sonnet-20240620') or 'claude-3-5-sonnet-20240620'
+            print(f"🤖 Using model: {model}")
+
             # Call Claude using the SDK
             message = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model=model,
                 max_tokens=1024,
                 messages=[
                     {
@@ -73,6 +93,7 @@ class ClaudeProcessor(Component):
 
             # Extract response text
             response_text = message.content[0].text
+            print(f"✅ Claude API response received for page {page_number}")
 
             # Log the response
             self.log(f"\n{'='*60}")
@@ -93,10 +114,20 @@ class ClaudeProcessor(Component):
 
         except Exception as e:
             error_msg = f"API Error: {str(e)}"
+            print(f"❌ ERROR calling Claude API for page {page_number}: {error_msg}")
+
+            # Check if it's a 404 model not found error
+            if "404" in str(e) or "not_found" in str(e):
+                print("💡 TIP: Model not found. Try changing the Model Name input to:")
+                print("   - claude-3-5-sonnet-20240620 (June 2024 - more widely available)")
+                print("   - claude-3-5-sonnet-20241022 (Oct 2024 - newer, may need access)")
+
             self.log(f"\n{'='*60}")
             self.log(f"❌ ERROR calling Claude (Page {page_number})")
             self.log(f"{'='*60}")
             self.log(f"Error: {error_msg}")
+            if "404" in str(e) or "not_found" in str(e):
+                self.log("💡 TIP: Try a different model name in the Model Name input field")
             self.log(f"{'='*60}\n")
 
             # Store error in logs
@@ -343,6 +374,10 @@ Return ONLY valid JSON:
 
     def process_pages(self) -> List[Data]:
         # Immediate log to verify component is being called
+        print("\n" + "="*60)
+        print("🚀 PROCESS_PAGES CALLED - STARTING NOW")
+        print("="*60)
+
         self.status = "Claude Activity Processor started!"
         self.log("="*60)
         self.log("🚀 CLAUDE ACTIVITY PROCESSOR INITIALIZED")
@@ -361,24 +396,32 @@ Return ONLY valid JSON:
         self.session_start = datetime.now()
 
         self.log("\n🚀 Starting Claude Activity Generation")
+        print("🚀 Starting Claude Activity Generation")
 
         # Debug: Check if pages input exists
         if not hasattr(self, 'pages'):
-            self.log("❌ ERROR: 'pages' attribute not found!")
+            error_msg = "❌ ERROR: 'pages' attribute not found!"
+            print(error_msg)
+            self.log(error_msg)
             self.log("This might be a Langflow input issue.")
             self.save_detailed_logs()
             return []
 
         if self.pages is None:
-            self.log("❌ ERROR: 'pages' is None!")
+            error_msg = "❌ ERROR: 'pages' is None!"
+            print(error_msg)
+            self.log(error_msg)
             self.log("No pages were passed to the component.")
             self.save_detailed_logs()
             return []
 
         total = len(self.pages)
+        print(f"📊 Received {total} pages to process")
 
         if total == 0:
-            self.log("⚠️ WARNING: Received 0 pages to process!")
+            warning_msg = "⚠️ WARNING: Received 0 pages to process!"
+            print(warning_msg)
+            self.log(warning_msg)
             self.log("Check that the pages input is connected and providing data.")
             self.save_detailed_logs()
             return []
@@ -386,6 +429,7 @@ Return ONLY valid JSON:
         self.log(f"📋 Total pages to process: {total}")
         self.log(f"📋 Pages input type: {type(self.pages)}")
         self.log(f"📋 First page preview: {self.pages[0].data if total > 0 else 'N/A'}\n")
+        print(f"📋 Pages type: {type(self.pages)}, First page: {self.pages[0].data if total > 0 else 'N/A'}")
 
         for idx, page_data_obj in enumerate(self.pages):
             page = page_data_obj.data
@@ -393,7 +437,11 @@ Return ONLY valid JSON:
             theme = page['theme']
             page_number = page['pageNumber']
 
-            self.status = f"Processing page {idx + 1}/{total} - {page_type} ({theme})"
+            status_msg = f"Processing page {idx + 1}/{total} - {page_type} ({theme})"
+            print(f"\n{'='*50}")
+            print(f"🔄 {status_msg}")
+            print(f"{'='*50}")
+            self.status = status_msg
 
             prompt = self.get_prompt_for_type(page_type, theme, page_number)
 
@@ -478,5 +526,9 @@ Return ONLY valid JSON:
         # Save detailed logs to file
         log_file = self.save_detailed_logs()
 
-        self.status = f"✓ Completed {len(processed)} pages with variety! Logs: {log_file}"
+        final_msg = f"✓ Completed {len(processed)} pages with variety! Logs: {log_file}"
+        print("\n" + "="*60)
+        print(f"✅ {final_msg}")
+        print("="*60 + "\n")
+        self.status = final_msg
         return processed
