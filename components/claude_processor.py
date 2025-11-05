@@ -1,7 +1,7 @@
 from langflow.custom import Component
 from langflow.io import MessageTextInput, Output, SecretStrInput, DataInput
 from langflow.schema import Data
-from typing import List
+from typing import List, Tuple, Optional
 import json
 import re
 import time
@@ -34,6 +34,20 @@ class ClaudeProcessor(Component):
             value="claude-haiku-4-5-20251001",
             required=False
         ),
+        # NEW: reproducible variety control
+        MessageTextInput(
+            name="random_seed",
+            display_name="Random Seed",
+            info="Optional integer. Set to reproduce page subject choices.",
+            value=""
+        ),
+        # NEW: user-tunable difficulty
+        MessageTextInput(
+            name="difficulty",
+            display_name="Difficulty",
+            info="easy | medium | hard (affects repetitions, maze difficulty)",
+            value="easy"
+        ),
     ]
 
     outputs = [
@@ -42,18 +56,15 @@ class ClaudeProcessor(Component):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Track what has been used for each page type
         self.used_items = {
             'coloring': [],
             'tracing': [],
             'counting': [],
             'dot-to-dot': []
         }
-        # Store detailed logs for debugging
         self.detailed_logs = []
         self.session_start = datetime.now()
 
-        # Early initialization logging
         print("🔵 ClaudeProcessor.__init__() called")
         try:
             self.status = "ClaudeProcessor initialized"
@@ -61,9 +72,70 @@ class ClaudeProcessor(Component):
         except Exception as e:
             print(f"⚠️ Error in __init__ logging: {e}")
 
+    # ---------- Utility: theme safety + mapping ----------
+    def _sanitize_theme(self, theme: str) -> str:
+        """Normalize and block branded themes to keep content safe."""
+        t = (theme or "").strip().lower()
+
+        # Friendly remaps
+        fallbacks = {
+            'forest': 'forest-friends', 'woods': 'forest-friends', 'forest friends': 'forest-friends',
+            'sea': 'under-the-sea', 'ocean': 'under-the-sea', 'under the sea': 'under-the-sea',
+            'farm': 'farm-day', 'farm animals': 'farm-day',
+            'space': 'space-explorer', 'galaxy': 'space-explorer'
+        }
+        for k, v in fallbacks.items():
+            if k in t:
+                t = v
+                break
+
+        # Block copyrighted/brand themes
+        blocked_keywords = ["peppa", "paw patrol", "paw-patrol", "disney", "marvel", "pokemon", "barbie"]
+        if any(b in t for b in blocked_keywords):
+            return "animals"
+
+        return t or "animals"
+
+    # ---------- Utility: difficulty ----------
+    def _difficulty(self) -> str:
+        d = (getattr(self, "difficulty", "easy") or "easy").strip().lower()
+        if d not in ("easy", "medium", "hard"):
+            d = "easy"
+        return d
+
+    # ---------- Utility: JSON extraction + retry ----------
+    def _extract_json(self, text: str) -> Optional[dict]:
+        # Strip code fences
+        cleaned = re.sub(r"```(?:json)?\s*", "", text)
+        cleaned = cleaned.replace("```", "")
+        m = re.search(r"\{[\s\S]*\}", cleaned)
+        if not m:
+            return None
+        blob = m.group(0)
+        try:
+            return json.loads(blob)
+        except json.JSONDecodeError:
+            # Gentle cleanup: trailing commas before } or ]
+            blob2 = re.sub(r",\s*([}\]])", r"\1", blob)
+            try:
+                return json.loads(blob2)
+            except Exception:
+                return None
+
+    def _call_with_retry(self, prompt: str, api_key: str, page_number: int, retries: int = 2) -> Tuple[Optional[dict], str]:
+        last_raw = ""
+        for i in range(retries + 1):
+            raw = self.call_claude(prompt, api_key, page_number)
+            parsed = self._extract_json(raw)
+            if parsed is not None:
+                return parsed, raw
+            last_raw = raw
+            time.sleep(0.4 * (i + 1))
+        return None, last_raw
+
+    # ---------- Anthropic call ----------
     def call_claude(self, prompt: str, api_key: str, page_number: int = 0) -> str:
         """Call Claude API using official Anthropic SDK with detailed logging"""
-        # Log the prompt
         print(f"\n📤 Calling Claude API for page {page_number}...")
         self.log(f"\n{'='*60}")
         self.log(f"📤 SENDING TO CLAUDE (Page {page_number})")
@@ -72,37 +144,30 @@ class ClaudeProcessor(Component):
         self.log(f"{'='*60}\n")
 
         try:
-            # Initialize Anthropic client
             client = Anthropic(api_key=api_key)
-
-            # Get model name from input, default if not provided
             model = getattr(self, 'model_name', 'claude-3-5-sonnet') or 'claude-3-5-sonnet'
             print(f"🤖 Using model: {model}")
 
-            # Call Claude using the SDK
             message = client.messages.create(
                 model=model,
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                max_tokens=768,   # leaner default
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            # Extract response text
             response_text = message.content[0].text
             print(f"✅ Claude API response received for page {page_number}")
 
-            # Log the response
+            # Usage logging if available
+            usage = getattr(message, "usage", None)
+            if usage:
+                self.log(f"Token usage - input:{getattr(usage,'input_tokens', 'n/a')} output:{getattr(usage,'output_tokens','n/a')}")
+
             self.log(f"\n{'='*60}")
             self.log(f"📥 RECEIVED FROM CLAUDE (Page {page_number})")
             self.log(f"{'='*60}")
             self.log(f"RESPONSE:\n{response_text}")
             self.log(f"{'='*60}\n")
 
-            # Store in detailed logs
             self.detailed_logs.append({
                 'timestamp': datetime.now().isoformat(),
                 'page_number': page_number,
@@ -116,43 +181,28 @@ class ClaudeProcessor(Component):
             error_msg = f"API Error: {str(e)}"
             print(f"❌ ERROR calling Claude API for page {page_number}: {error_msg}")
 
-            # Check if it's a 404 model not found error
             if "404" in str(e) or "not_found" in str(e):
-                print("💡 TIP: Model not found. Try changing the Model Name input to:")
-                print("   - claude-3-5-sonnet (alias - auto-routes to latest)")
-                print("   - claude-sonnet-4 (newer Sonnet 4 model)")
-                print("   - claude-3-7-sonnet-20250219 (Claude 3.7)")
-                print("   - Check your API key has access to these models")
+                print("💡 TIP: Model not found. Try: claude-3-5-sonnet, claude-sonnet-4, or check API key access")
 
             self.log(f"\n{'='*60}")
             self.log(f"❌ ERROR calling Claude (Page {page_number})")
             self.log(f"{'='*60}")
             self.log(f"Error: {error_msg}")
-            if "404" in str(e) or "not_found" in str(e):
-                self.log("💡 TIP: Try claude-3-5-sonnet, claude-sonnet-4, or check API key access")
             self.log(f"{'='*60}\n")
 
-            # Store error in logs
             self.detailed_logs.append({
                 'timestamp': datetime.now().isoformat(),
                 'page_number': page_number,
                 'prompt': prompt,
                 'response': f"ERROR: {error_msg}"
             })
-
             raise
 
-    def _sanitize_theme(self, theme: str) -> str:
-        """Normalize and block branded themes to keep content safe."""
-        t = (theme or "").strip().lower()
-        # Block copyrighted brands and map to safe buckets
-        blocked_keywords = ["peppa", "paw patrol", "paw-patrol", "disney", "marvel", "pokemon"]
-        if any(b in t for b in blocked_keywords):
-            return "animals"
-        return t or "animals"
-
+    # ---------- Prompt builder ----------
     def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
         theme = self._sanitize_theme(theme)
+        diff = self._difficulty()
+        reps = 8 if diff == "easy" else 12 if diff == "medium" else 16
 
         style_guard = f"""
 GLOBAL STYLE REQUIREMENTS:
@@ -160,25 +210,24 @@ GLOBAL STYLE REQUIREMENTS:
 - Illustration style: thick black outlines, simple cute shapes, no shading
 - Lots of white space; minimal clutter
 - Friendly 1-sentence instructions
+- Difficulty: {diff}
 - No copyrighted characters or brands
 - Keep the theme consistent across pages: '{theme}'
 """
 
         if page_type == 'coloring':
-            # Brand-free subjects organized by theme
             theme_subjects = {
-                'forest-friends': ['fox', 'bear', 'owl', 'rabbit', 'hedgehog', 'deer', 'squirrel', 'raccoon', 'snail', 'mushroom', 'acorn', 'pine tree'],
-                'under-the-sea': ['fish', 'dolphin', 'starfish', 'shell', 'turtle', 'seahorse', 'crab', 'octopus', 'bubble', 'coral'],
-                'farm-day': ['cow', 'chicken', 'sheep', 'pig', 'barn', 'tractor', 'duck', 'horse', 'hay bale'],
-                'space-explorer': ['rocket', 'planet', 'star', 'moon', 'astronaut', 'satellite', 'comet'],
-                'shapes': ['circle', 'square', 'triangle', 'star', 'heart', 'diamond', 'oval', 'rectangle', 'hexagon', 'pentagon'],
-                'animals': ['cat', 'dog', 'rabbit', 'bird', 'fish', 'elephant', 'giraffe', 'lion', 'bear', 'monkey', 'butterfly', 'bee', 'duck', 'frog']
+                'forest-friends': ['fox','bear','owl','rabbit','hedgehog','deer','squirrel','raccoon','snail','mushroom','acorn','pine tree'],
+                'under-the-sea': ['fish','dolphin','starfish','shell','turtle','seahorse','crab','octopus','bubble','coral'],
+                'farm-day': ['cow','chicken','sheep','pig','barn','tractor','duck','horse','hay bale'],
+                'space-explorer': ['rocket','planet','star','moon','astronaut','satellite','comet'],
+                'shapes': ['circle','square','triangle','star','heart','diamond','oval','rectangle','hexagon','pentagon'],
+                'animals': ['cat','dog','rabbit','bird','fish','elephant','giraffe','lion','bear','monkey','butterfly','bee','duck','frog']
             }
             subjects = theme_subjects.get(theme, theme_subjects['animals'])
 
             used = self.used_items.get('coloring', [])
             available = [s for s in subjects if s not in used]
-
             if not available:
                 self.used_items['coloring'] = []
                 available = subjects
@@ -212,13 +261,11 @@ Return ONLY valid JSON (no markdown, no code blocks):
             ]
             used = self.used_items.get('tracing', [])
             available = [s for s in options if s not in used]
-
             if not available:
                 self.used_items['tracing'] = []
                 available = options
 
             selected = random.choice(available)
-
             title_kind = "Letter" if selected.isalpha() else ("Number" if selected.isdigit() else "Shape")
 
             return style_guard + f"""Create a tracing worksheet for preschoolers.
@@ -236,19 +283,17 @@ Return ONLY valid JSON:
   "title": "Trace the {title_kind} {selected}",
   "content": "{selected}",
   "instruction": "Trace over the dotted lines",
-  "repetitions": 12,
+  "repetitions": {reps},
   "theme": "{theme}"
 }}"""
 
         elif page_type == 'counting':
             count_options = [2, 3, 4, 5, 6, 7, 8, 9, 10]
-            # Keep items neutral; renderer will theme-ify visuals downstream
-            item_options = ['circle', 'star', 'heart', 'square', 'triangle', 'apple', 'flower', 'car', 'ball', 'balloon', 'butterfly', 'fish']
+            item_options = ['circle','star','heart','square','triangle','apple','flower','car','ball','balloon','butterfly','fish']
 
             used = self.used_items.get('counting', [])
             all_combinations = [f"{count}-{item}" for count in count_options for item in item_options]
             available = [c for c in all_combinations if c not in used]
-
             if not available:
                 self.used_items['counting'] = []
                 available = all_combinations
@@ -276,6 +321,8 @@ Return ONLY valid JSON:
 }}"""
 
         elif page_type == 'maze':
+            # Difficulty comes through in JSON
+            diff = self._difficulty()
             return style_guard + f"""Create a maze title for preschoolers.
 Theme: {theme}
 
@@ -283,7 +330,7 @@ Return ONLY valid JSON:
 {{
   "title": "Fun Maze",
   "instruction": "Help find the way!",
-  "difficulty": "easy",
+  "difficulty": "{diff}",
   "theme": "{theme}"
 }}"""
 
@@ -307,10 +354,9 @@ Return ONLY valid JSON:
 }}"""
 
         elif page_type == 'dot-to-dot':
-            shape_options = ['star', 'circle', 'heart', 'square', 'triangle', 'diamond', 'house', 'tree', 'flower', 'butterfly', 'fish', 'apple']
+            shape_options = ['star','circle','heart','square','triangle','diamond','house','tree','flower','butterfly','fish','apple']
             used = self.used_items.get('dot-to-dot', [])
             available = [s for s in shape_options if s not in used]
-
             if not available:
                 self.used_items['dot-to-dot'] = []
                 available = shape_options
@@ -339,7 +385,6 @@ Return ONLY valid JSON:
         return ""
 
     def save_detailed_logs(self):
-        """Save detailed logs to a file for debugging"""
         try:
             timestamp = self.session_start.strftime("%Y%m%d_%H%M%S")
             log_filename = f"claude_logs_{timestamp}.txt"
@@ -357,18 +402,15 @@ Return ONLY valid JSON:
                     f.write(f"PAGE {log_entry['page_number']} - Entry {idx}/{len(self.detailed_logs)}\n")
                     f.write(f"Timestamp: {log_entry['timestamp']}\n")
                     f.write(f"{'#'*80}\n\n")
-
                     f.write("PROMPT SENT TO CLAUDE:\n")
                     f.write("-"*80 + "\n")
                     f.write(log_entry['prompt'])
                     f.write("\n" + "-"*80 + "\n\n")
-
                     f.write("CLAUDE RESPONSE:\n")
                     f.write("-"*80 + "\n")
                     f.write(log_entry['response'])
                     f.write("\n" + "-"*80 + "\n\n")
 
-                # Summary section
                 f.write("\n" + "="*80 + "\n")
                 f.write("SUMMARY\n")
                 f.write("="*80 + "\n")
@@ -386,7 +428,6 @@ Return ONLY valid JSON:
             return None
 
     def process_pages(self) -> List[Data]:
-        # Immediate log to verify component is being called
         print("\n" + "="*60)
         print("🚀 PROCESS_PAGES CALLED - STARTING NOW")
         print("="*60)
@@ -396,48 +437,42 @@ Return ONLY valid JSON:
         self.log("🚀 CLAUDE ACTIVITY PROCESSOR INITIALIZED")
         self.log("="*60)
 
+        # NEW: reproducible randomness if provided
+        try:
+            seed_raw = getattr(self, "random_seed", "").strip()
+            if seed_raw:
+                random.seed(int(seed_raw))
+                self.log(f"🔢 Random seed set to {seed_raw}")
+        except Exception:
+            self.log("⚠️ Random seed not applied (non-integer)")
+
         processed = []
 
         # Reset tracking for new run
-        self.used_items = {
-            'coloring': [],
-            'tracing': [],
-            'counting': [],
-            'dot-to-dot': []
-        }
+        self.used_items = { 'coloring': [], 'tracing': [], 'counting': [], 'dot-to-dot': [] }
         self.detailed_logs = []
         self.session_start = datetime.now()
 
         self.log("\n🚀 Starting Claude Activity Generation")
         print("🚀 Starting Claude Activity Generation")
 
-        # Debug: Check if pages input exists
         if not hasattr(self, 'pages'):
             error_msg = "❌ ERROR: 'pages' attribute not found!"
-            print(error_msg)
-            self.log(error_msg)
-            self.log("This might be a Langflow input issue.")
-            self.save_detailed_logs()
-            return []
+            print(error_msg); self.log(error_msg); self.log("This might be a Langflow input issue.")
+            self.save_detailed_logs(); return []
 
         if self.pages is None:
             error_msg = "❌ ERROR: 'pages' is None!"
-            print(error_msg)
-            self.log(error_msg)
-            self.log("No pages were passed to the component.")
-            self.save_detailed_logs()
-            return []
+            print(error_msg); self.log(error_msg); self.log("No pages were passed to the component.")
+            self.save_detailed_logs(); return []
 
         total = len(self.pages)
         print(f"📊 Received {total} pages to process")
 
         if total == 0:
             warning_msg = "⚠️ WARNING: Received 0 pages to process!"
-            print(warning_msg)
-            self.log(warning_msg)
-            self.log("Check that the pages input is connected and providing data.")
-            self.save_detailed_logs()
-            return []
+            print(warning_msg); self.log(warning_msg); self.log("Check that the pages input is connected and providing data.")
+            self.save_detailed_logs(); return []
 
         self.log(f"📋 Total pages to process: {total}")
         self.log(f"📋 Pages input type: {type(self.pages)}")
@@ -459,17 +494,9 @@ Return ONLY valid JSON:
             prompt = self.get_prompt_for_type(page_type, theme, page_number)
 
             try:
-                content = self.call_claude(prompt, self.anthropic_api_key, page_number)
-                
-                # Remove markdown code blocks if present
-                content = re.sub(r'```json\s*', '', content)
-                content = re.sub(r'```\s*', '', content)
-                
-                # Extract JSON from response
-                json_match = re.search(r'\{[\s\S]*\}', content)
-                if json_match:
-                    parsed = json.loads(json_match.group(0))
-                    
+                parsed, raw = self._call_with_retry(prompt, self.anthropic_api_key, page_number, retries=2)
+
+                if parsed:
                     # Track what we used
                     if page_type == 'coloring':
                         subject = parsed.get('subject', '')
@@ -492,39 +519,31 @@ Return ONLY valid JSON:
                         if shape:
                             self.used_items['dot-to-dot'].append(shape)
                             self.log(f"✓ Page {page_number}: {shape} dot-to-dot")
-                    
-                    # Ensure required fields exist
+
                     merged = {
                         'pageNumber': page_number,
                         'type': page_type,
-                        'theme': theme,
+                        'theme': self._sanitize_theme(theme),
                         **parsed
                     }
-                    
                     processed.append(Data(data=merged))
                 else:
-                    self.log(f"ERROR Page {page_number}: No JSON found")
+                    self.log(f"ERROR Page {page_number}: No JSON found after retries")
                     processed.append(Data(data={
                         **page,
                         'error': 'No JSON found',
-                        'raw_response': content[:200]
+                        'raw_response': (raw or '')[:400]
                     }))
-                    
-                # Small delay to avoid rate limits
-                time.sleep(0.3)
-                
+
+                time.sleep(0.3)  # Rate limit cushion
+
             except Exception as e:
                 self.status = f"Error on page {page_number}: {str(e)}"
                 self.log(f"ERROR on page {page_number}: {str(e)}")
-                processed.append(Data(data={
-                    **page,
-                    'error': str(e)
-                }))
-        
-        # Sort by page number
+                processed.append(Data(data={ **page, 'error': str(e) }))
+
         processed.sort(key=lambda x: x.data.get('pageNumber', 0))
 
-        # Save detailed logs
         self.log("\n" + "="*60)
         self.log("📊 GENERATION COMPLETE - SUMMARY")
         self.log("="*60)
@@ -536,7 +555,6 @@ Return ONLY valid JSON:
                 self.log(f"  {activity_type}: {', '.join(items)}")
         self.log("="*60 + "\n")
 
-        # Save detailed logs to file
         log_file = self.save_detailed_logs()
 
         final_msg = f"✓ Completed {len(processed)} pages with variety! Logs: {log_file}"
