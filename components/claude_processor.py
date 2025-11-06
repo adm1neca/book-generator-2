@@ -10,6 +10,15 @@ from datetime import datetime
 from pathlib import Path
 from anthropic import Anthropic
 
+# Configuration modules (Phase 1 refactoring)
+from components.config import (
+    ThemeConfig,
+    DifficultyConfig,
+    PageLimitsConfig,
+    DIFFICULTY_REPETITIONS,
+    THEME_SUBJECTS
+)
+
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor 2"
     description = "Processes pages through Claude API with variety tracking"
@@ -93,34 +102,21 @@ class ClaudeProcessor(Component):
 
     # ---------- Utility: theme safety + mapping ----------
     def _sanitize_theme(self, theme: str) -> str:
-        """Normalize and block branded themes to keep content safe."""
-        t = (theme or "").strip().lower()
+        """Normalize and block branded themes to keep content safe.
 
-        # Friendly remaps
-        fallbacks = {
-            'forest': 'forest-friends', 'woods': 'forest-friends', 'forest friends': 'forest-friends',
-            'sea': 'under-the-sea', 'ocean': 'under-the-sea', 'under the sea': 'under-the-sea',
-            'farm': 'farm-day', 'farm animals': 'farm-day',
-            'space': 'space-explorer', 'galaxy': 'space-explorer'
-        }
-        for k, v in fallbacks.items():
-            if k in t:
-                t = v
-                break
-
-        # Block copyrighted/brand themes
-        blocked_keywords = ["peppa", "paw patrol", "paw-patrol", "disney", "marvel", "pokemon", "barbie"]
-        if any(b in t for b in blocked_keywords):
-            return "animals"
-
-        return t or "animals"
+        REFACTORED: Delegates to ThemeConfig value object.
+        Maintains backward compatibility - same signature, same behavior.
+        """
+        return ThemeConfig.sanitize(theme)
 
     # ---------- Utility: difficulty ----------
     def _difficulty(self) -> str:
-        d = (getattr(self, "difficulty", "easy") or "easy").strip().lower()
-        if d not in ("easy", "medium", "hard"):
-            d = "easy"
-        return d
+        """Get normalized difficulty level.
+
+        REFACTORED: Delegates to DifficultyConfig value object.
+        """
+        raw_difficulty = getattr(self, "difficulty", "easy")
+        return DifficultyConfig.normalize(raw_difficulty)
 
     def _dummy_output_directory(self) -> Optional[Path]:
         dump_dir = (getattr(self, "dummy_output_dir", "") or "").strip()
@@ -142,79 +138,37 @@ class ClaudeProcessor(Component):
     # ---------- Utility: page/topic limits ----------
     @staticmethod
     def _coerce_positive_int(raw_value, label: str) -> Optional[int]:
-        """Convert incoming values to a positive int, logging when invalid."""
-        if raw_value is None:
-            return None
+        """Convert incoming values to a positive int, logging when invalid.
 
-        if isinstance(raw_value, (int, float)):
-            value = int(raw_value)
-        else:
-            text = str(raw_value).strip()
-            if not text:
-                return None
-            try:
-                value = int(text)
-            except ValueError:
-                return None
-
-        if value <= 0:
-            return None
-
-        return value
+        REFACTORED: Delegates to validation module.
+        Method kept for backward compatibility.
+        """
+        from components.config import coerce_positive_int as validate_int
+        return validate_int(raw_value, label)
 
     def _max_total_pages(self) -> Optional[int]:
-        value = self._coerce_positive_int(getattr(self, "max_total_pages", None), "max_total_pages")
-        if value is None:
-            raw = getattr(self, "max_total_pages", "")
-            if raw not in (None, "", 0):
-                self.log(f"Ignoring max_total_pages value '{raw}' (must be a positive integer).")
+        """Get maximum total pages limit.
+
+        REFACTORED: Uses PageLimitsConfig parser.
+        """
+        raw_value = getattr(self, "max_total_pages", None)
+        value = PageLimitsConfig.parse_max_total(raw_value)
+        if value is None and raw_value not in (None, "", 0):
+            self.log(f"Ignoring max_total_pages value '{raw_value}' (must be a positive integer).")
         return value
 
     def _pages_per_topic(self) -> Dict[str, int]:
+        """Get per-topic page limits.
+
+        REFACTORED: Delegates parsing to PageLimitsConfig.
+        """
         raw = getattr(self, "pages_per_topic", None)
-        if raw is None:
+
+        try:
+            limits = PageLimitsConfig.parse_pages_per_topic(raw)
+        except Exception as exc:
+            self.log(f"Could not parse pages_per_topic: {exc}")
             return {}
-
-        if isinstance(raw, dict):
-            source_items = raw.items()
-        else:
-            text = str(raw).strip()
-            if not text:
-                return {}
-
-            if text.startswith("{"):
-                try:
-                    decoded = json.loads(text)
-                except json.JSONDecodeError as exc:
-                    self.log(f"Could not parse pages_per_topic JSON: {exc}")
-                    return {}
-
-                if not isinstance(decoded, dict):
-                    self.log("pages_per_topic JSON must decode to an object/dict.")
-                    return {}
-
-                source_items = decoded.items()
-            else:
-                parts = [p.strip() for p in text.split(",") if p.strip()]
-                parsed_pairs = []
-                for part in parts:
-                    if "=" not in part:
-                        self.log(f"Skipping pages_per_topic entry '{part}'. Expected format topic=count.")
-                        continue
-                    key, value = part.split("=", 1)
-                    parsed_pairs.append((key.strip(), value.strip()))
-                source_items = parsed_pairs
-
-        limits: Dict[str, int] = {}
-        for key, value in source_items:
-            topic = str(key).strip().lower()
-            if not topic:
-                continue
-            count = self._coerce_positive_int(value, f"pages_per_topic[{topic}]")
-            if count is None:
-                self.log(f"Ignoring pages_per_topic entry '{key}: {value}' (must be a positive integer).")
-                continue
-            limits[topic] = count
 
         if limits:
             pretty = ", ".join(f"{topic}={count}" for topic, count in limits.items())
@@ -350,7 +304,7 @@ class ClaudeProcessor(Component):
     def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
         theme = self._sanitize_theme(theme)
         diff = self._difficulty()
-        reps = 8 if diff == "easy" else 12 if diff == "medium" else 16
+        reps = DifficultyConfig.get_repetitions(diff)  # REFACTORED: Uses config
 
         style_guard = f"""
 GLOBAL STYLE REQUIREMENTS:
@@ -364,15 +318,8 @@ GLOBAL STYLE REQUIREMENTS:
 """
 
         if page_type == 'coloring':
-            theme_subjects = {
-                'forest-friends': ['fox','bear','owl','rabbit','hedgehog','deer','squirrel','raccoon','snail','mushroom','acorn','pine tree'],
-                'under-the-sea': ['fish','dolphin','starfish','shell','turtle','seahorse','crab','octopus','bubble','coral'],
-                'farm-day': ['cow','chicken','sheep','pig','barn','tractor','duck','horse','hay bale'],
-                'space-explorer': ['rocket','planet','star','moon','astronaut','satellite','comet'],
-                'shapes': ['circle','square','triangle','star','heart','diamond','oval','rectangle','hexagon','pentagon'],
-                'animals': ['cat','dog','rabbit','bird','fish','elephant','giraffe','lion','bear','monkey','butterfly','bee','duck','frog']
-            }
-            subjects = theme_subjects.get(theme, theme_subjects['animals'])
+            # REFACTORED: Uses THEME_SUBJECTS from config
+            subjects = THEME_SUBJECTS.get(theme, THEME_SUBJECTS['animals'])
 
             used = self.used_items.get('coloring', [])
             available = [s for s in subjects if s not in used]
