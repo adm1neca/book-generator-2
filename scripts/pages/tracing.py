@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Any, Dict
 
 from reportlab.pdfgen.canvas import Canvas
 
-# Import shape renderers
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from drawing.shapes import get_renderer, RENDERERS
+from scripts.drawing.shapes import get_renderer, RENDERERS
 
 
 def _is_shape(content: str) -> bool:

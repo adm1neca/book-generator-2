@@ -11,15 +11,20 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 
-# Import shape renderers
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from drawing.shapes import get_renderer
-from assets import load_assets
+from scripts.drawing.shapes import get_renderer
+from scripts.assets import load_assets
 
 
-# Load asset library once
-_ASSETS = load_assets()
+# Lazy load assets
+_ASSETS = None
+
+
+def _get_assets():
+    """Lazy load assets on first use."""
+    global _ASSETS
+    if _ASSETS is None:
+        _ASSETS = load_assets()
+    return _ASSETS
 
 
 def _draw_shape_from_library(c: Canvas, x: float, y: float, shape_name: str, size: float = 50) -> None:
@@ -38,11 +43,13 @@ def _draw_shape_from_library(c: Canvas, x: float, y: float, shape_name: str, siz
 
 def _draw_svg_asset(c: Canvas, x: float, y: float, asset_name: str, size: float = 50) -> None:
     """Draw an SVG asset from the assets directory, scaled to size."""
+    assets = _get_assets()
+
     # Normalize asset name to slug
     slug = asset_name.lower().strip().replace(' ', '-')
 
-    if slug in _ASSETS:
-        asset_path = _ASSETS[slug]
+    if slug in assets:
+        asset_path = assets[slug]
         if asset_path.suffix.lower() == '.svg':
             try:
                 # Load and render SVG
@@ -96,8 +103,9 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
     else:
         # Plain string - try to interpret as shape/asset name first
         item_str = str(item)
+        assets = _get_assets()
         # Check if it's a known shape or asset
-        if item_str.lower() in _ASSETS or get_renderer(item_str):
+        if item_str.lower() in assets or get_renderer(item_str):
             _draw_shape(c, x, y, item_str, size)
         else:
             # Otherwise render as text

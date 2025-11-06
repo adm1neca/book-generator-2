@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any, Dict, Iterable, Tuple
 
 from reportlab.lib import colors
@@ -54,12 +53,19 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     dots: Iterable[Dot] = page_spec["dot_positions"]
     dot_list = list(dots)
 
-    # Draw dashed outline guide
+    # Draw dashed outline guide first
     _draw_shape_outline_dashed(c, page_spec.get("shape", "star"), dot_list)
 
-    c.setFont("Helvetica-Bold", 12)
+    # Reset to solid line and black for dots
+    c.setDash()  # Remove dash pattern
+    c.setStrokeColor(colors.black)
     c.setFillColor(colors.black)
+    c.setLineWidth(1)
+    c.setFont("Helvetica-Bold", 12)
 
+    # Draw numbered dots
     for i, (x, y) in enumerate(dot_list[:dots_count], start=1):
+        # Draw filled circle for dot
         c.circle(x, y, 4, stroke=1, fill=1)
+        # Draw number above dot
         c.drawCentredString(x, y + 10, str(i))
