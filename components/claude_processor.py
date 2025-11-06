@@ -7,6 +7,7 @@ import re
 import time
 import random
 from datetime import datetime
+from pathlib import Path
 from anthropic import Anthropic
 
 class ClaudeProcessor(Component):
@@ -47,6 +48,12 @@ class ClaudeProcessor(Component):
             display_name="Difficulty",
             info="easy | medium | hard (affects repetitions, maze difficulty)",
             value="easy"
+        ),
+        MessageTextInput(
+            name="dummy_output_dir",
+            display_name="Dummy Output Directory",
+            info="Optional folder to store Claude JSON runs for Langflow tests. Leave blank to skip.",
+            value="/tmp/claude_runs"
         ),
     ]
 
@@ -102,6 +109,52 @@ class ClaudeProcessor(Component):
         if d not in ("easy", "medium", "hard"):
             d = "easy"
         return d
+
+    def _dummy_output_directory(self) -> Optional[Path]:
+        dump_dir = (getattr(self, "dummy_output_dir", "") or "").strip()
+        if not dump_dir:
+            return None
+
+        base_path = Path(dump_dir).expanduser()
+        if not base_path.is_absolute():
+            base_path = Path.cwd() / base_path
+
+        try:
+            base_path.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            self.log(f"Failed to ensure dummy output directory '{base_path}': {exc}")
+            return None
+
+        return base_path
+
+    def _dump_processed_output(self, processed: List[Data]) -> Optional[Path]:
+        directory = self._dummy_output_directory()
+        if directory is None:
+            return None
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"claude_run_{timestamp}.json"
+        payload = {
+            "meta": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "model": getattr(self, "model_name", ""),
+                "difficulty": self._difficulty(),
+                "pages_count": len(processed)
+            },
+            "pages": [item.data for item in processed],
+            "claude_logs": self.detailed_logs,
+        }
+
+        file_path = directory / filename
+
+        try:
+            with file_path.open("w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False, indent=2)
+            self.log(f"Saved Claude dummy data to {file_path}")
+            return file_path
+        except Exception as exc:
+            self.log(f"Failed to dump Claude dummy data: {exc}")
+            return None
 
     # ---------- Utility: JSON extraction + retry ----------
     def _extract_json(self, text: str) -> Optional[dict]:
@@ -544,6 +597,11 @@ Return ONLY valid JSON:
 
         processed.sort(key=lambda x: x.data.get('pageNumber', 0))
 
+        dummy_path = self._dump_processed_output(processed)
+        if dummy_path:
+            self.log(f"Dummy JSON saved to {dummy_path}")
+
+
         self.log("\n" + "="*60)
         self.log("📊 GENERATION COMPLETE - SUMMARY")
         self.log("="*60)
@@ -558,6 +616,8 @@ Return ONLY valid JSON:
         log_file = self.save_detailed_logs()
 
         final_msg = f"✓ Completed {len(processed)} pages with variety! Logs: {log_file}"
+        if dummy_path:
+            final_msg += f" | Dummy JSON: {dummy_path}"
         print("\n" + "="*60)
         print(f"✅ {final_msg}")
         print("="*60 + "\n")

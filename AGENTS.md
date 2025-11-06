@@ -57,3 +57,7 @@ This agent generates multi-page children’s activity booklets using:
 - Export as EPUB / web flipbook viewer.
 
 - ReportLab's PDFPathObject lacks quadratic Bezier support; convert quad segments to cubic curveTo control points when porting artwork.
+\n## Learnings\n\n- Claude processor now has an optional \dummy_output_dir\ input that writes each run to timestamped JSON (pages + logs), so we can feed Langflow's PDF generator with Claude-free dummy tests.
+## Learnings
+
+- Added optional dummy_output_dir input on the Claude processor to capture each run as timestamped JSON (pages + prompts/responses) for Langflow dummy feeds without hitting the API.
