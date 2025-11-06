@@ -15,5 +15,6 @@ services:
     volumes:
       - ./components:/app/components
       - ./workdir:/app/workdir
+      - ./scripts:/app/scripts
       - ./data:/app/langflow       # keeps flows & settings across runs
     restart: unless-stopped
