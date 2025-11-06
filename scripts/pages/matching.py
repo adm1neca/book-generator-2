@@ -94,12 +94,18 @@ def _draw_shape(c: Canvas, x: float, y: float, shape: str, size: float = 50) -> 
 
 
 def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 60) -> None:
-    """Draw a matching item - supports shapes, SVG assets, numbers, and colors."""
+    """Draw a matching item - supports shapes, SVG assets, numbers, colors, and animals."""
     if isinstance(item, dict):
         item_type = item.get("type", "shape")
         logger.debug(f"Drawing matching item type '{item_type}': {item}")
+
         if item_type == "shape":
             _draw_shape(c, x, y, item.get("shape", "circle"), size)
+        elif item_type == "animal":
+            # Handle animal type - Claude uses either "name" or "animal" as key
+            animal_name = item.get("name") or item.get("animal", "circle")
+            logger.debug(f"Drawing animal '{animal_name}'")
+            _draw_shape(c, x, y, animal_name, size)
         elif item_type == "number":
             c.setFont("Helvetica-Bold", 36)
             c.drawCentredString(x, y - 12, str(item.get("value", "1")))
@@ -115,6 +121,11 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
         elif item_type == "asset":
             # Direct asset reference
             _draw_svg_asset(c, x, y, item.get("name", "circle"), size)
+        else:
+            # Unknown type - log warning and try to render as text
+            logger.warning(f"Unknown item type '{item_type}', treating as text")
+            c.setFont("Helvetica-Bold", 24)
+            c.drawCentredString(x, y - 8, str(item_type))
     else:
         # Plain string - try to interpret as shape/asset name first
         item_str = str(item)
