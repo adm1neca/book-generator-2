@@ -31,6 +31,65 @@ from components.tracking import VarietyTracker
 from components.logging import SessionLogger, OutputDumper
 
 class ClaudeProcessor(Component):
+    """Claude Activity Processor - Main Orchestrator.
+
+    A Langflow component that generates children's activity book pages using Claude AI.
+    This is the main orchestrator that coordinates between specialized subsystems.
+
+    Architecture (Post-Refactoring):
+    --------------------------------
+    This component follows a modular architecture with clear separation of concerns:
+
+    1. Configuration Management (components/config/)
+       - ThemeConfig: Theme sanitization and validation
+       - DifficultyConfig: Difficulty normalization
+       - PageLimitsConfig: Page limit parsing and enforcement
+
+    2. Prompt Building (components/prompts/)
+       - PromptBuilderFactory: Strategy factory for activity types
+       - 6 Strategy classes: coloring, tracing, counting, maze, matching, dot-to-dot
+       - Each strategy encapsulates prompt generation logic
+
+    3. API Communication (components/api/)
+       - ClaudeAPIClient: Adapter for Anthropic SDK
+       - ResponseParser: JSON extraction and validation
+       - RetryHandler: Exponential backoff retry logic
+
+    4. Variety Tracking (components/tracking/)
+       - VarietyTracker: State management for content diversity
+       - Automatic reset when all options exhausted
+
+    5. Logging System (components/logging/)
+       - SessionLogger: Structured session and API call logging
+       - OutputDumper: JSON output for testing and debugging
+
+    Design Patterns Applied:
+    -----------------------
+    - Strategy Pattern: Prompt building strategies
+    - Factory Pattern: Strategy creation
+    - Adapter Pattern: Claude API client
+    - State Pattern: Variety tracking
+    - Observer Pattern (simplified): Logging
+    - Template Method: Base strategy classes
+    - Value Object: Configuration objects
+    - Single Responsibility: Each module has one purpose
+    - Open/Closed: Easy to extend without modification
+
+    Inputs:
+    -------
+    - pages: List of page configurations to process
+    - anthropic_api_key: Claude API key
+    - model_name: Claude model (default: claude-haiku-4-5-20251001)
+    - random_seed: Optional seed for reproducible variety
+    - difficulty: easy|medium|hard (affects repetitions)
+    - max_total_pages: Optional cap on total pages
+    - pages_per_topic: Optional limits per activity type
+    - dummy_output_dir: Optional directory for test JSON dumps
+
+    Outputs:
+    --------
+    - processed_pages: List of Data objects with generated page specifications
+    """
     display_name = "Claude Activity Processor 2"
     description = "Processes pages through Claude API with variety tracking"
     icon = "brain"
@@ -305,10 +364,27 @@ GLOBAL STYLE REQUIREMENTS:
 
 
     def process_pages(self) -> List[Data]:
+        """Main orchestration method - processes activity pages through Claude API.
+
+        Processing Flow:
+        ---------------
+        1. Initialize/Reset: Clear trackers and loggers
+        2. Validate Input: Check pages input is valid
+        3. Parse Limits: Apply max_total_pages and pages_per_topic constraints
+        4. Process Loop: For each page:
+           a. Check limits
+           b. Build prompt using strategy
+           c. Call Claude API with retry
+           d. Track variety
+           e. Merge results
+        5. Finalize: Save logs and dump output
+
+        Returns:
+            List of Data objects with generated page specifications
+        """
+        # ========== PHASE 1: INITIALIZE ==========
         processed: List[Data] = []
-        # REFACTORED: Phase 4 - Use VarietyTracker
         self.variety_tracker.reset()
-        # REFACTORED: Phase 5 - Use SessionLogger
         self.session_logger.clear()
 
         self.status = "Claude Activity Processor started!"
@@ -327,6 +403,7 @@ GLOBAL STYLE REQUIREMENTS:
         self.log("\n--- Starting Claude Activity Generation ---")
         print("--- Starting Claude Activity Generation ---")
 
+        # ========== PHASE 2: VALIDATE INPUT ==========
         if not hasattr(self, "pages"):
             error_msg = "ERROR: 'pages' attribute not found!"
             print(error_msg)
@@ -360,6 +437,7 @@ GLOBAL STYLE REQUIREMENTS:
         self.log("> First page preview: {}\n".format(preview))
         print("> Pages type: {}, First page: {}".format(type(self.pages), preview))
 
+        # ========== PHASE 3: PARSE LIMITS ==========
         total_limit = self._max_total_pages()
         if total_limit:
             self.log("Max total pages limit active: {}".format(total_limit))
@@ -370,6 +448,7 @@ GLOBAL STYLE REQUIREMENTS:
         skipped_due_to_limits = []
         total_processed = 0
 
+        # ========== PHASE 4: PROCESS LOOP ==========
         for idx, page_data_obj in enumerate(self.pages):
             if total_limit is not None and total_processed >= total_limit:
                 remaining = total - idx
@@ -445,6 +524,7 @@ GLOBAL STYLE REQUIREMENTS:
 
         processed.sort(key=lambda x: x.data.get('pageNumber', 0))
 
+        # ========== PHASE 5: FINALIZE ==========
         dummy_path = self._dump_processed_output(processed)
         if dummy_path:
             self.log("Dummy JSON saved to {}".format(dummy_path))
