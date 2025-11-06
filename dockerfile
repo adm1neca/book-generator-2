@@ -31,6 +31,8 @@ COPY scripts /app/scripts
 # Environment: tell Langflow where to find your components
 ENV LANGFLOW_COMPONENTS_PATH=/app/components
 ENV PYTHONUNBUFFERED=1
+# Ensure our in-repo modules (scripts, etc.) are importable without manual sys.path tweaks
+ENV PYTHONPATH="/app:/app/scripts${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Drop back to the non-root user used by the base image
 USER 1000:1000
