@@ -1,7 +1,7 @@
 from langflow.custom import Component
 from langflow.io import MessageTextInput, Output, SecretStrInput, DataInput
 from langflow.schema import Data
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import json
 import re
 import time
@@ -48,6 +48,18 @@ class ClaudeProcessor(Component):
             display_name="Difficulty",
             info="easy | medium | hard (affects repetitions, maze difficulty)",
             value="easy"
+        ),
+        MessageTextInput(
+            name="max_total_pages",
+            display_name="Max Total Pages",
+            info="Optional integer cap on how many pages this processor will generate. Leave blank for no total limit.",
+            value=""
+        ),
+        MessageTextInput(
+            name="pages_per_topic",
+            display_name="Pages Per Topic",
+            info="Optional limits per page topic/type. Accepts JSON (e.g. {\"coloring\":8}) or comma list like coloring=8,tracing=4.",
+            value=""
         ),
         MessageTextInput(
             name="dummy_output_dir",
@@ -126,6 +138,89 @@ class ClaudeProcessor(Component):
             return None
 
         return base_path
+
+    # ---------- Utility: page/topic limits ----------
+    @staticmethod
+    def _coerce_positive_int(raw_value, label: str) -> Optional[int]:
+        """Convert incoming values to a positive int, logging when invalid."""
+        if raw_value is None:
+            return None
+
+        if isinstance(raw_value, (int, float)):
+            value = int(raw_value)
+        else:
+            text = str(raw_value).strip()
+            if not text:
+                return None
+            try:
+                value = int(text)
+            except ValueError:
+                return None
+
+        if value <= 0:
+            return None
+
+        return value
+
+    def _max_total_pages(self) -> Optional[int]:
+        value = self._coerce_positive_int(getattr(self, "max_total_pages", None), "max_total_pages")
+        if value is None:
+            raw = getattr(self, "max_total_pages", "")
+            if raw not in (None, "", 0):
+                self.log(f"Ignoring max_total_pages value '{raw}' (must be a positive integer).")
+        return value
+
+    def _pages_per_topic(self) -> Dict[str, int]:
+        raw = getattr(self, "pages_per_topic", None)
+        if raw is None:
+            return {}
+
+        if isinstance(raw, dict):
+            source_items = raw.items()
+        else:
+            text = str(raw).strip()
+            if not text:
+                return {}
+
+            if text.startswith("{"):
+                try:
+                    decoded = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    self.log(f"Could not parse pages_per_topic JSON: {exc}")
+                    return {}
+
+                if not isinstance(decoded, dict):
+                    self.log("pages_per_topic JSON must decode to an object/dict.")
+                    return {}
+
+                source_items = decoded.items()
+            else:
+                parts = [p.strip() for p in text.split(",") if p.strip()]
+                parsed_pairs = []
+                for part in parts:
+                    if "=" not in part:
+                        self.log(f"Skipping pages_per_topic entry '{part}'. Expected format topic=count.")
+                        continue
+                    key, value = part.split("=", 1)
+                    parsed_pairs.append((key.strip(), value.strip()))
+                source_items = parsed_pairs
+
+        limits: Dict[str, int] = {}
+        for key, value in source_items:
+            topic = str(key).strip().lower()
+            if not topic:
+                continue
+            count = self._coerce_positive_int(value, f"pages_per_topic[{topic}]")
+            if count is None:
+                self.log(f"Ignoring pages_per_topic entry '{key}: {value}' (must be a positive integer).")
+                continue
+            limits[topic] = count
+
+        if limits:
+            pretty = ", ".join(f"{topic}={count}" for topic, count in limits.items())
+            self.log(f"Pages-per-topic limits active: {pretty}")
+
+        return limits
 
     def _dump_processed_output(self, processed: List[Data]) -> Optional[Path]:
         directory = self._dummy_output_directory()
@@ -259,7 +354,7 @@ class ClaudeProcessor(Component):
 
         style_guard = f"""
 GLOBAL STYLE REQUIREMENTS:
-- Target age: 4–5 years old
+- Target age: 2–3 years old
 - Illustration style: thick black outlines, simple cute shapes, no shading
 - Lots of white space; minimal clutter
 - Friendly 1-sentence instructions
@@ -480,68 +575,115 @@ Return ONLY valid JSON:
             self.log(f"⚠️ Failed to save detailed logs: {str(e)}")
             return None
 
+
+
     def process_pages(self) -> List[Data]:
-        print("\n" + "="*60)
-        print("🚀 PROCESS_PAGES CALLED - STARTING NOW")
-        print("="*60)
-
-        self.status = "Claude Activity Processor started!"
-        self.log("="*60)
-        self.log("🚀 CLAUDE ACTIVITY PROCESSOR INITIALIZED")
-        self.log("="*60)
-
-        # NEW: reproducible randomness if provided
-        try:
-            seed_raw = getattr(self, "random_seed", "").strip()
-            if seed_raw:
-                random.seed(int(seed_raw))
-                self.log(f"🔢 Random seed set to {seed_raw}")
-        except Exception:
-            self.log("⚠️ Random seed not applied (non-integer)")
-
-        processed = []
-
-        # Reset tracking for new run
-        self.used_items = { 'coloring': [], 'tracing': [], 'counting': [], 'dot-to-dot': [] }
+        processed: List[Data] = []
+        self.used_items = {
+            'coloring': [],
+            'tracing': [],
+            'counting': [],
+            'dot-to-dot': []
+        }
         self.detailed_logs = []
         self.session_start = datetime.now()
 
-        self.log("\n🚀 Starting Claude Activity Generation")
-        print("🚀 Starting Claude Activity Generation")
+        self.status = "Claude Activity Processor started!"
+        self.log("=" * 60)
+        self.log("CLAUDE ACTIVITY PROCESSOR INITIALIZED")
+        self.log("=" * 60)
 
-        if not hasattr(self, 'pages'):
-            error_msg = "❌ ERROR: 'pages' attribute not found!"
-            print(error_msg); self.log(error_msg); self.log("This might be a Langflow input issue.")
-            self.save_detailed_logs(); return []
+        try:
+            seed_raw = str(getattr(self, "random_seed", "")).strip()
+            if seed_raw:
+                random.seed(int(seed_raw))
+                self.log("Random seed set to {}".format(seed_raw))
+        except Exception:
+            self.log("Random seed not applied (non-integer)")
+
+        self.log("\n--- Starting Claude Activity Generation ---")
+        print("--- Starting Claude Activity Generation ---")
+
+        if not hasattr(self, "pages"):
+            error_msg = "ERROR: 'pages' attribute not found!"
+            print(error_msg)
+            self.log(error_msg)
+            self.log("This might be a Langflow input issue.")
+            self.save_detailed_logs()
+            return []
 
         if self.pages is None:
-            error_msg = "❌ ERROR: 'pages' is None!"
-            print(error_msg); self.log(error_msg); self.log("No pages were passed to the component.")
-            self.save_detailed_logs(); return []
+            error_msg = "ERROR: 'pages' is None!"
+            print(error_msg)
+            self.log(error_msg)
+            self.log("No pages were passed to the component.")
+            self.save_detailed_logs()
+            return []
 
         total = len(self.pages)
-        print(f"📊 Received {total} pages to process")
+        print("-> Received {} pages to process".format(total))
 
         if total == 0:
-            warning_msg = "⚠️ WARNING: Received 0 pages to process!"
-            print(warning_msg); self.log(warning_msg); self.log("Check that the pages input is connected and providing data.")
-            self.save_detailed_logs(); return []
+            warning_msg = "WARNING: Received 0 pages to process!"
+            print(warning_msg)
+            self.log(warning_msg)
+            self.log("Check that the pages input is connected and providing data.")
+            self.save_detailed_logs()
+            return []
 
-        self.log(f"📋 Total pages to process: {total}")
-        self.log(f"📋 Pages input type: {type(self.pages)}")
-        self.log(f"📋 First page preview: {self.pages[0].data if total > 0 else 'N/A'}\n")
-        print(f"📋 Pages type: {type(self.pages)}, First page: {self.pages[0].data if total > 0 else 'N/A'}")
+        self.log("> Total pages to process: {}".format(total))
+        self.log("> Pages input type: {}".format(type(self.pages)))
+        preview = self.pages[0].data if total > 0 else 'N/A'
+        self.log("> First page preview: {}\n".format(preview))
+        print("> Pages type: {}, First page: {}".format(type(self.pages), preview))
+
+        total_limit = self._max_total_pages()
+        if total_limit:
+            self.log("Max total pages limit active: {}".format(total_limit))
+
+        per_topic_limits = self._pages_per_topic()
+        per_topic_counts = {}
+        per_topic_labels = {}
+        skipped_due_to_limits = []
+        total_processed = 0
 
         for idx, page_data_obj in enumerate(self.pages):
+            if total_limit is not None and total_processed >= total_limit:
+                remaining = total - idx
+                limit_msg = "Reached max_total_pages limit ({}). Skipping remaining {} page(s).".format(total_limit, remaining)
+                self.log(limit_msg)
+                print(limit_msg)
+                skipped_due_to_limits.append(limit_msg)
+                break
+
             page = page_data_obj.data
             page_type = page['type']
             theme = page['theme']
             page_number = page['pageNumber']
 
-            status_msg = f"Processing page {idx + 1}/{total} - {page_type} ({theme})"
-            print(f"\n{'='*50}")
-            print(f"🔄 {status_msg}")
-            print(f"{'='*50}")
+            normalized_type = (page_type or "").strip().lower()
+            if normalized_type:
+                per_topic_labels.setdefault(normalized_type, page_type)
+            else:
+                normalized_type = "__unknown__"
+                per_topic_labels.setdefault(normalized_type, page_type or "unknown")
+
+            type_limit = per_topic_limits.get(normalized_type) if normalized_type != "__unknown__" else None
+            current_count = per_topic_counts.get(normalized_type, 0)
+            if type_limit is not None and current_count >= type_limit:
+                skip_msg = "Skipping page {} ({}) - limit {} reached for topic '{}'.".format(page_number, page_type, type_limit, per_topic_labels[normalized_type])
+                self.log(skip_msg)
+                print(skip_msg)
+                skipped_due_to_limits.append(skip_msg)
+                continue
+
+            per_topic_counts[normalized_type] = current_count + 1
+            total_processed += 1
+
+            status_msg = "Processing page {}/{} - {} ({})".format(idx + 1, total, page_type, theme)
+            print("\n" + "=" * 50)
+            print("=> {}".format(status_msg))
+            print("=" * 50)
             self.status = status_msg
 
             prompt = self.get_prompt_for_type(page_type, theme, page_number)
@@ -550,28 +692,27 @@ Return ONLY valid JSON:
                 parsed, raw = self._call_with_retry(prompt, self.anthropic_api_key, page_number, retries=2)
 
                 if parsed:
-                    # Track what we used
                     if page_type == 'coloring':
                         subject = parsed.get('subject', '')
                         if subject:
                             self.used_items['coloring'].append(subject)
-                            self.log(f"✓ Page {page_number}: {subject} coloring")
+                            self.log("> Page {}: {} coloring".format(page_number, subject))
                     elif page_type == 'tracing':
                         content_char = parsed.get('content', '')
                         if content_char:
                             self.used_items['tracing'].append(content_char)
-                            self.log(f"✓ Page {page_number}: Trace {content_char}")
+                            self.log("> Page {}: Trace {}".format(page_number, content_char))
                     elif page_type == 'counting':
                         count = parsed.get('count', 0)
                         item = parsed.get('item', '')
                         if count and item:
-                            self.used_items['counting'].append(f"{count}-{item}")
-                            self.log(f"✓ Page {page_number}: Count {count} {item}s")
+                            self.used_items['counting'].append("{}-{}".format(count, item))
+                            self.log("> Page {}: Count {} {}s".format(page_number, count, item))
                     elif page_type == 'dot-to-dot':
                         shape = parsed.get('shape', '')
                         if shape:
                             self.used_items['dot-to-dot'].append(shape)
-                            self.log(f"✓ Page {page_number}: {shape} dot-to-dot")
+                            self.log("> Page {}: {} dot-to-dot".format(page_number, shape))
 
                     merged = {
                         'pageNumber': page_number,
@@ -581,45 +722,60 @@ Return ONLY valid JSON:
                     }
                     processed.append(Data(data=merged))
                 else:
-                    self.log(f"ERROR Page {page_number}: No JSON found after retries")
+                    self.log("ERROR Page {}: No JSON found after retries".format(page_number))
                     processed.append(Data(data={
                         **page,
                         'error': 'No JSON found',
                         'raw_response': (raw or '')[:400]
                     }))
 
-                time.sleep(0.3)  # Rate limit cushion
+                time.sleep(0.3)
 
             except Exception as e:
-                self.status = f"Error on page {page_number}: {str(e)}"
-                self.log(f"ERROR on page {page_number}: {str(e)}")
-                processed.append(Data(data={ **page, 'error': str(e) }))
+                self.status = "Error on page {}: {}".format(page_number, e)
+                self.log("ERROR on page {}: {}".format(page_number, e))
+                processed.append(Data(data={**page, 'error': str(e)}))
 
         processed.sort(key=lambda x: x.data.get('pageNumber', 0))
 
         dummy_path = self._dump_processed_output(processed)
         if dummy_path:
-            self.log(f"Dummy JSON saved to {dummy_path}")
+            self.log("Dummy JSON saved to {}".format(dummy_path))
 
+        if per_topic_counts:
+            self.log("Pages generated per topic/type:")
+            for key, count in sorted(per_topic_counts.items()):
+                label = per_topic_labels.get(key, key)
+                if key == "__unknown__":
+                    label = "unknown"
+                self.log("  {}: {}".format(label, count))
 
-        self.log("\n" + "="*60)
-        self.log("📊 GENERATION COMPLETE - SUMMARY")
-        self.log("="*60)
-        self.log(f"Total pages generated: {len(processed)}")
-        self.log(f"Session duration: {(datetime.now() - self.session_start).total_seconds():.2f} seconds")
+        if skipped_due_to_limits:
+            self.log("Skipped due to configured limits:")
+            for entry in skipped_due_to_limits:
+                self.log("  - {}".format(entry))
+
+        self.log("\n" + "=" * 60)
+        self.log("GENERATION COMPLETE - SUMMARY")
+        self.log("=" * 60)
+        self.log("Total pages generated: {}".format(len(processed)))
+        duration = (datetime.now() - self.session_start).total_seconds()
+        self.log("Session duration: {:.2f} seconds".format(duration))
         self.log("\nVariety used per activity type:")
         for activity_type, items in self.used_items.items():
             if items:
-                self.log(f"  {activity_type}: {', '.join(items)}")
-        self.log("="*60 + "\n")
+                self.log("  {}: {}".format(activity_type, ', '.join(items)))
+        self.log("=" * 60 + "\n")
 
         log_file = self.save_detailed_logs()
 
-        final_msg = f"✓ Completed {len(processed)} pages with variety! Logs: {log_file}"
+        final_msg = "Completed {} pages with variety! Logs: {}".format(len(processed), log_file)
         if dummy_path:
-            final_msg += f" | Dummy JSON: {dummy_path}"
-        print("\n" + "="*60)
-        print(f"✅ {final_msg}")
-        print("="*60 + "\n")
+            final_msg += " | Dummy JSON: {}".format(dummy_path)
+        if skipped_due_to_limits:
+            final_msg += " | Skipped {} due to limits".format(len(skipped_due_to_limits))
+        print("\n" + "=" * 60)
+        print("* {}".format(final_msg))
+        print("=" * 60 + "\n")
         self.status = final_msg
         return processed

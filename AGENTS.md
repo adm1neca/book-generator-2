@@ -62,3 +62,5 @@ This agent generates multi-page children’s activity booklets using:
 
 - Added optional dummy_output_dir input on the Claude processor to capture each run as timestamped JSON (pages + prompts/responses) for Langflow dummy feeds without hitting the API
 \n## Learnings\n\n- Claude processor now has an optional \dummy_output_dir\ input that writes each run to timestamped JSON (pages + logs), so we can feed Langflow's PDF generator with Claude-free dummy tests.
+- New Claude processor inputs allow setting a global page cap (x_total_pages) and per-topic caps (pages_per_topic) so Langflow runs can throttle output without modifying the upstream page generator.
+- Added max_total_pages (overall cap) and pages_per_topic (per-type caps) inputs on Claude processor so flows can limit page generation without editing upstream nodes.
