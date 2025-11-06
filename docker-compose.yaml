@@ -3,7 +3,7 @@ services:
   langflow:
     build:
       context: .
-      dockerfile: Dockerfile    # adjust if your filename differs
+      dockerfile: dockerfile    # adjust if your filename differs
     container_name: langflow-custom
     ports:
       - "7860:7860"
