@@ -1,7 +1,7 @@
 # Core for your renderer & schema checks
 reportlab==4.*
-svglib==1.*
-pillow==10.*
+svglib>=1.5
+Pillow>=10.0
 jsonschema==4.*
 
 # Claude API - compatible with langchain-anthropic
