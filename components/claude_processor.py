@@ -27,6 +27,9 @@ from components.api import (
 # Variety tracking module (Phase 4 refactoring)
 from components.tracking import VarietyTracker
 
+# Logging modules (Phase 5 refactoring)
+from components.logging import SessionLogger, OutputDumper
+
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor 2"
     description = "Processes pages through Claude API with variety tracking"
@@ -94,8 +97,8 @@ class ClaudeProcessor(Component):
         super().__init__(*args, **kwargs)
         # REFACTORED: Phase 4 - Use VarietyTracker for state management
         self.variety_tracker = VarietyTracker()
-        self.detailed_logs = []
-        self.session_start = datetime.now()
+        # REFACTORED: Phase 5 - Use SessionLogger for logging
+        self.session_logger = SessionLogger()
 
         print("🔵 ClaudeProcessor.__init__() called")
         try:
@@ -180,34 +183,33 @@ class ClaudeProcessor(Component):
 
         return limits
 
+    # REFACTORED: Phase 5 - Use OutputDumper for JSON output
     def _dump_processed_output(self, processed: List[Data]) -> Optional[Path]:
+        """Dump processed output to JSON file using OutputDumper."""
         directory = self._dummy_output_directory()
         if directory is None:
             return None
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"claude_run_{timestamp}.json"
-        payload = {
-            "meta": {
-                "generated_at": datetime.utcnow().isoformat(),
-                "model": getattr(self, "model_name", ""),
-                "difficulty": self._difficulty(),
-                "pages_count": len(processed)
-            },
-            "pages": [item.data for item in processed],
-            "claude_logs": self.detailed_logs,
+        # Prepare metadata
+        metadata = {
+            "model": getattr(self, "model_name", ""),
+            "difficulty": self._difficulty()
         }
 
-        file_path = directory / filename
+        # Dump using OutputDumper
+        file_path = OutputDumper.dump(
+            processed_pages=[item.data for item in processed],
+            logs=self.session_logger.get_detailed_logs(),
+            output_dir=directory,
+            metadata=metadata
+        )
 
-        try:
-            with file_path.open("w", encoding="utf-8") as fh:
-                json.dump(payload, fh, ensure_ascii=False, indent=2)
+        if file_path:
             self.log(f"Saved Claude dummy data to {file_path}")
-            return file_path
-        except Exception as exc:
-            self.log(f"Failed to dump Claude dummy data: {exc}")
-            return None
+        else:
+            self.log(f"Failed to dump Claude dummy data")
+
+        return file_path
 
     # ---------- API Communication ----------
     # REFACTORED: Phase 3 - Uses ClaudeAPIClient + RetryHandler
@@ -235,8 +237,15 @@ class ClaudeProcessor(Component):
         api_call = lambda: client.send_message(prompt, page_number=page_number)
         parsed, raw = retry_handler.call_with_retry(api_call, retries=retries)
 
-        # Merge client logs into detailed_logs
-        self.detailed_logs.extend(client.get_detailed_logs())
+        # REFACTORED: Phase 5 - Merge client logs into session_logger
+        for log_entry in client.get_detailed_logs():
+            self.session_logger.log_api_call(
+                page_number=log_entry.get('page_number', 0),
+                prompt=log_entry.get('prompt', ''),
+                response=log_entry.get('response', ''),
+                model=log_entry.get('model'),
+                usage=log_entry.get('usage')
+            )
 
         return parsed, raw
 
@@ -284,49 +293,14 @@ GLOBAL STYLE REQUIREMENTS:
 
         return prompt, selected_item
 
+    # REFACTORED: Phase 5 - Use SessionLogger for saving logs
     def save_detailed_logs(self):
-        try:
-            timestamp = self.session_start.strftime("%Y%m%d_%H%M%S")
-            log_filename = f"claude_logs_{timestamp}.txt"
-
-            with open(log_filename, 'w', encoding='utf-8') as f:
-                f.write("="*80 + "\n")
-                f.write("CLAUDE ACTIVITY GENERATOR - DETAILED LOG\n")
-                f.write("="*80 + "\n")
-                f.write(f"Session Start: {self.session_start.isoformat()}\n")
-                f.write(f"Total Pages Processed: {len(self.detailed_logs)}\n")
-                f.write("="*80 + "\n\n")
-
-                for idx, log_entry in enumerate(self.detailed_logs, 1):
-                    f.write(f"\n{'#'*80}\n")
-                    f.write(f"PAGE {log_entry['page_number']} - Entry {idx}/{len(self.detailed_logs)}\n")
-                    f.write(f"Timestamp: {log_entry['timestamp']}\n")
-                    f.write(f"{'#'*80}\n\n")
-                    f.write("PROMPT SENT TO CLAUDE:\n")
-                    f.write("-"*80 + "\n")
-                    f.write(log_entry['prompt'])
-                    f.write("\n" + "-"*80 + "\n\n")
-                    f.write("CLAUDE RESPONSE:\n")
-                    f.write("-"*80 + "\n")
-                    f.write(log_entry['response'])
-                    f.write("\n" + "-"*80 + "\n\n")
-
-                f.write("\n" + "="*80 + "\n")
-                f.write("SUMMARY\n")
-                f.write("="*80 + "\n")
-                f.write(f"Total API calls: {len(self.detailed_logs)}\n")
-                f.write(f"Session duration: {(datetime.now() - self.session_start).total_seconds():.2f} seconds\n")
-                f.write("\nItems used per activity type:\n")
-                # REFACTORED: Phase 4 - Use VarietyTracker
-                for activity_type, items in self.variety_tracker.get_summary().items():
-                    f.write(f"  {activity_type}: {', '.join(items) if items else 'none'}\n")
-                f.write("="*80 + "\n")
-
-            self.log(f"\n✅ Detailed logs saved to: {log_filename}")
-            return log_filename
-        except Exception as e:
-            self.log(f"⚠️ Failed to save detailed logs: {str(e)}")
-            return None
+        """Save detailed logs using SessionLogger."""
+        variety_summary = self.variety_tracker.get_summary()
+        filename = self.session_logger.save(variety_summary=variety_summary)
+        if filename:
+            self.log(f"\n✅ Detailed logs saved to: {filename}")
+        return filename
 
 
 
@@ -334,8 +308,8 @@ GLOBAL STYLE REQUIREMENTS:
         processed: List[Data] = []
         # REFACTORED: Phase 4 - Use VarietyTracker
         self.variety_tracker.reset()
-        self.detailed_logs = []
-        self.session_start = datetime.now()
+        # REFACTORED: Phase 5 - Use SessionLogger
+        self.session_logger.clear()
 
         self.status = "Claude Activity Processor started!"
         self.log("=" * 60)
@@ -492,8 +466,9 @@ GLOBAL STYLE REQUIREMENTS:
         self.log("GENERATION COMPLETE - SUMMARY")
         self.log("=" * 60)
         self.log("Total pages generated: {}".format(len(processed)))
-        duration = (datetime.now() - self.session_start).total_seconds()
-        self.log("Session duration: {:.2f} seconds".format(duration))
+        # REFACTORED: Phase 5 - Use SessionLogger for session info
+        summary = self.session_logger.get_summary()
+        self.log("Session duration: {:.2f} seconds".format(summary['duration_seconds']))
         self.log("\nVariety used per activity type:")
         # REFACTORED: Phase 4 - Use VarietyTracker
         for activity_type, items in self.variety_tracker.get_summary().items():
