@@ -19,7 +19,7 @@ class TracingPromptStrategy(PromptStrategy):
         'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
         'N', 'O', 'P',
         '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-        'Ë', '³', '¡', '', 'e'
+        'circle', 'triangle', 'square', 'star', 'heart'
     ]
 
     def get_available_options(self, theme: str, difficulty: str) -> List[str]:

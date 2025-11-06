@@ -14,10 +14,11 @@ from anthropic import Anthropic
 from components.config import (
     ThemeConfig,
     DifficultyConfig,
-    PageLimitsConfig,
-    DIFFICULTY_REPETITIONS,
-    THEME_SUBJECTS
+    PageLimitsConfig
 )
+
+# Prompt building strategies (Phase 2 refactoring)
+from components.prompts import PromptBuilderFactory
 
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor 2"
@@ -301,11 +302,17 @@ class ClaudeProcessor(Component):
             raise
 
     # ---------- Prompt builder ----------
-    def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> str:
+    # REFACTORED: Phase 2 - Uses Strategy Pattern for prompt building
+    def get_prompt_for_type(self, page_type: str, theme: str, page_number: int) -> Tuple[str, Optional[str]]:
+        """Build prompt using appropriate strategy.
+
+        Returns:
+            Tuple of (prompt, selected_item) where selected_item is used for variety tracking
+        """
         theme = self._sanitize_theme(theme)
         diff = self._difficulty()
-        reps = DifficultyConfig.get_repetitions(diff)  # REFACTORED: Uses config
 
+        # Common style requirements for all page types
         style_guard = f"""
 GLOBAL STYLE REQUIREMENTS:
 - Target age: 2–3 years old
@@ -317,167 +324,32 @@ GLOBAL STYLE REQUIREMENTS:
 - Keep the theme consistent across pages: '{theme}'
 """
 
-        if page_type == 'coloring':
-            # REFACTORED: Uses THEME_SUBJECTS from config
-            subjects = THEME_SUBJECTS.get(theme, THEME_SUBJECTS['animals'])
+        # Get appropriate strategy from factory
+        try:
+            strategy = PromptBuilderFactory.get_builder(page_type)
+        except ValueError:
+            # Unknown page type, return empty
+            return "", None
 
-            used = self.used_items.get('coloring', [])
-            available = [s for s in subjects if s not in used]
-            if not available:
-                self.used_items['coloring'] = []
-                available = subjects
+        # Get used items for this page type
+        used_items = self.used_items.get(page_type, [])
 
-            selected = random.choice(available)
+        # Reset if we've used all available options
+        available_options = strategy.get_available_options(theme, diff)
+        if available_options and all(item in used_items for item in available_options):
+            self.used_items[page_type] = []
+            used_items = []
 
-            return style_guard + f"""Create specifications for a simple coloring page for a 4–5 year old child.
-Theme: {theme}
-Page Number: {page_number}
+        # Build prompt using strategy
+        prompt, selected_item = strategy.build(
+            theme=theme,
+            difficulty=diff,
+            page_number=page_number,
+            used_items=used_items,
+            style_guard=style_guard
+        )
 
-CRITICAL REQUIREMENT: You MUST use THIS EXACT subject: "{selected}"
-Available options were: {', '.join(available)}
-Already used (DO NOT REPEAT): {', '.join(used) if used else 'none yet'}
-
-You must use EXACTLY: "{selected}"
-
-Return ONLY valid JSON (no markdown, no code blocks):
-{{
-  "title": "Color the {selected.title()}",
-  "instruction": "Use your crayons to color me in!",
-  "subject": "{selected}",
-  "description": "[2-3 word fun description of the {selected}]",
-  "theme": "{theme}"
-}}"""
-
-        elif page_type == 'tracing':
-            options = [
-                'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
-                '1','2','3','4','5','6','7','8','9','0',
-                '○','△','□','★','♥'
-            ]
-            used = self.used_items.get('tracing', [])
-            available = [s for s in options if s not in used]
-            if not available:
-                self.used_items['tracing'] = []
-                available = options
-
-            selected = random.choice(available)
-            title_kind = "Letter" if selected.isalpha() else ("Number" if selected.isdigit() else "Shape")
-
-            return style_guard + f"""Create a tracing worksheet for preschoolers.
-Theme: {theme}
-Page: {page_number}
-
-CRITICAL: You MUST use THIS EXACT character: "{selected}"
-Available options were: {', '.join(available)}
-Already used (DO NOT REPEAT): {', '.join(used) if used else 'none'}
-
-You must use EXACTLY: "{selected}"
-
-Return ONLY valid JSON:
-{{
-  "title": "Trace the {title_kind} {selected}",
-  "content": "{selected}",
-  "instruction": "Trace over the dotted lines",
-  "repetitions": {reps},
-  "theme": "{theme}"
-}}"""
-
-        elif page_type == 'counting':
-            count_options = [2, 3, 4, 5, 6, 7, 8, 9, 10]
-            item_options = ['circle','star','heart','square','triangle','apple','flower','car','ball','balloon','butterfly','fish']
-
-            used = self.used_items.get('counting', [])
-            all_combinations = [f"{count}-{item}" for count in count_options for item in item_options]
-            available = [c for c in all_combinations if c not in used]
-            if not available:
-                self.used_items['counting'] = []
-                available = all_combinations
-
-            choice = random.choice(available)
-            count_str, item = choice.split('-')
-
-            return style_guard + f"""Create a counting exercise for preschoolers.
-Theme: {theme}
-Page: {page_number}
-
-CRITICAL: YOU MUST USE EXACTLY: {count_str} {item}s
-Available combinations were: {', '.join(available[:10])}{'...' if len(available) > 10 else ''}
-Already used: {', '.join(used) if used else 'none'}
-
-You must use EXACTLY: {count_str} {item}s
-
-Return ONLY valid JSON:
-{{
-  "title": "Count the {item.title()}s",
-  "count": {count_str},
-  "item": "{item}",
-  "instruction": "Count how many you see and write your answer",
-  "theme": "{theme}"
-}}"""
-
-        elif page_type == 'maze':
-            # Difficulty comes through in JSON
-            diff = self._difficulty()
-            return style_guard + f"""Create a maze title for preschoolers.
-Theme: {theme}
-
-Return ONLY valid JSON:
-{{
-  "title": "Fun Maze",
-  "instruction": "Help find the way!",
-  "difficulty": "{diff}",
-  "theme": "{theme}"
-}}"""
-
-        elif page_type == 'matching':
-            return style_guard + f"""Create a matching exercise for preschoolers.
-Theme: {theme}
-
-Create EXACTLY 4 pairs using variety.
-
-Return ONLY valid JSON:
-{{
-  "title": "Match the Pairs!",
-  "instruction": "Draw lines to connect matching items",
-  "pairs": [
-    [{{"type": "shape", "shape": "circle"}}, {{"type": "shape", "shape": "circle"}}],
-    [{{"type": "shape", "shape": "star"}}, {{"type": "shape", "shape": "star"}}],
-    [{{"type": "shape", "shape": "heart"}}, {{"type": "shape", "shape": "heart"}}],
-    [{{"type": "shape", "shape": "square"}}, {{"type": "shape", "shape": "square"}}]
-  ],
-  "theme": "{theme}"
-}}"""
-
-        elif page_type == 'dot-to-dot':
-            shape_options = ['star','circle','heart','square','triangle','diamond','house','tree','flower','butterfly','fish','apple']
-            used = self.used_items.get('dot-to-dot', [])
-            available = [s for s in shape_options if s not in used]
-            if not available:
-                self.used_items['dot-to-dot'] = []
-                available = shape_options
-
-            selected = random.choice(available)
-
-            return style_guard + f"""Create a dot-to-dot exercise.
-Theme: {theme}
-Page: {page_number}
-
-CRITICAL: You MUST use THIS EXACT shape: "{selected}"
-Available shapes were: {', '.join(available)}
-Already used: {', '.join(used) if used else 'none'}
-
-You must use EXACTLY: "{selected}"
-
-Return ONLY valid JSON:
-{{
-  "title": "Connect the Dots",
-  "instruction": "Connect 1 to 12 to reveal a {selected}",
-  "dots": 12,
-  "shape": "{selected}",
-  "theme": "{theme}"
-}}"""
-
-        return ""
+        return prompt, selected_item
 
     def save_detailed_logs(self):
         try:
@@ -633,33 +505,19 @@ Return ONLY valid JSON:
             print("=" * 50)
             self.status = status_msg
 
-            prompt = self.get_prompt_for_type(page_type, theme, page_number)
+            # REFACTORED: Phase 2 - get_prompt_for_type now returns (prompt, selected_item)
+            prompt, selected_item = self.get_prompt_for_type(page_type, theme, page_number)
 
             try:
                 parsed, raw = self._call_with_retry(prompt, self.anthropic_api_key, page_number, retries=2)
 
                 if parsed:
-                    if page_type == 'coloring':
-                        subject = parsed.get('subject', '')
-                        if subject:
-                            self.used_items['coloring'].append(subject)
-                            self.log("> Page {}: {} coloring".format(page_number, subject))
-                    elif page_type == 'tracing':
-                        content_char = parsed.get('content', '')
-                        if content_char:
-                            self.used_items['tracing'].append(content_char)
-                            self.log("> Page {}: Trace {}".format(page_number, content_char))
-                    elif page_type == 'counting':
-                        count = parsed.get('count', 0)
-                        item = parsed.get('item', '')
-                        if count and item:
-                            self.used_items['counting'].append("{}-{}".format(count, item))
-                            self.log("> Page {}: Count {} {}s".format(page_number, count, item))
-                    elif page_type == 'dot-to-dot':
-                        shape = parsed.get('shape', '')
-                        if shape:
-                            self.used_items['dot-to-dot'].append(shape)
-                            self.log("> Page {}: {} dot-to-dot".format(page_number, shape))
+                    # REFACTORED: Phase 2 - Track variety using selected_item from strategy
+                    if selected_item:
+                        if page_type not in self.used_items:
+                            self.used_items[page_type] = []
+                        self.used_items[page_type].append(selected_item)
+                        self.log("> Page {}: {} - {}".format(page_number, page_type, selected_item))
 
                     merged = {
                         'pageNumber': page_number,
