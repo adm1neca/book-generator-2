@@ -24,6 +24,9 @@ from components.api import (
     RetryHandler
 )
 
+# Variety tracking module (Phase 4 refactoring)
+from components.tracking import VarietyTracker
+
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor 2"
     description = "Processes pages through Claude API with variety tracking"
@@ -89,12 +92,8 @@ class ClaudeProcessor(Component):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.used_items = {
-            'coloring': [],
-            'tracing': [],
-            'counting': [],
-            'dot-to-dot': []
-        }
+        # REFACTORED: Phase 4 - Use VarietyTracker for state management
+        self.variety_tracker = VarietyTracker()
         self.detailed_logs = []
         self.session_start = datetime.now()
 
@@ -271,14 +270,8 @@ GLOBAL STYLE REQUIREMENTS:
             # Unknown page type, return empty
             return "", None
 
-        # Get used items for this page type
-        used_items = self.used_items.get(page_type, [])
-
-        # Reset if we've used all available options
-        available_options = strategy.get_available_options(theme, diff)
-        if available_options and all(item in used_items for item in available_options):
-            self.used_items[page_type] = []
-            used_items = []
+        # REFACTORED: Phase 4 - Use VarietyTracker for state
+        used_items = self.variety_tracker.get_used(page_type)
 
         # Build prompt using strategy
         prompt, selected_item = strategy.build(
@@ -324,7 +317,8 @@ GLOBAL STYLE REQUIREMENTS:
                 f.write(f"Total API calls: {len(self.detailed_logs)}\n")
                 f.write(f"Session duration: {(datetime.now() - self.session_start).total_seconds():.2f} seconds\n")
                 f.write("\nItems used per activity type:\n")
-                for activity_type, items in self.used_items.items():
+                # REFACTORED: Phase 4 - Use VarietyTracker
+                for activity_type, items in self.variety_tracker.get_summary().items():
                     f.write(f"  {activity_type}: {', '.join(items) if items else 'none'}\n")
                 f.write("="*80 + "\n")
 
@@ -338,12 +332,8 @@ GLOBAL STYLE REQUIREMENTS:
 
     def process_pages(self) -> List[Data]:
         processed: List[Data] = []
-        self.used_items = {
-            'coloring': [],
-            'tracing': [],
-            'counting': [],
-            'dot-to-dot': []
-        }
+        # REFACTORED: Phase 4 - Use VarietyTracker
+        self.variety_tracker.reset()
         self.detailed_logs = []
         self.session_start = datetime.now()
 
@@ -452,11 +442,9 @@ GLOBAL STYLE REQUIREMENTS:
                 parsed, raw = self._call_with_retry(prompt, self.anthropic_api_key, page_number, retries=2)
 
                 if parsed:
-                    # REFACTORED: Phase 2 - Track variety using selected_item from strategy
+                    # REFACTORED: Phase 4 - Use VarietyTracker to mark items as used
                     if selected_item:
-                        if page_type not in self.used_items:
-                            self.used_items[page_type] = []
-                        self.used_items[page_type].append(selected_item)
+                        self.variety_tracker.mark_used(page_type, selected_item)
                         self.log("> Page {}: {} - {}".format(page_number, page_type, selected_item))
 
                     merged = {
@@ -507,7 +495,8 @@ GLOBAL STYLE REQUIREMENTS:
         duration = (datetime.now() - self.session_start).total_seconds()
         self.log("Session duration: {:.2f} seconds".format(duration))
         self.log("\nVariety used per activity type:")
-        for activity_type, items in self.used_items.items():
+        # REFACTORED: Phase 4 - Use VarietyTracker
+        for activity_type, items in self.variety_tracker.get_summary().items():
             if items:
                 self.log("  {}: {}".format(activity_type, ', '.join(items)))
         self.log("=" * 60 + "\n")
