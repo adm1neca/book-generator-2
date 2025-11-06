@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from reportlab.lib import colors
@@ -29,7 +30,11 @@ class ActivityBookletGenerator:
     """Render activity pages onto a PDF canvas."""
 
     def __init__(self, output_file: str):
-        self.c = canvas.Canvas(output_file, pagesize=A4)
+        output_path = Path(output_file)
+        parent = output_path.parent
+        if parent and str(parent) not in {"", "."}:
+            parent.mkdir(parents=True, exist_ok=True)
+        self.c = canvas.Canvas(str(output_path), pagesize=A4)
         self.width, self.height = A4
         self.margin = max(0.75 * inch, kid_margin(self.width, self.height))
         self._renderers: Dict[str, PageRenderer] = {
