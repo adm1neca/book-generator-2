@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from scripts.assets import load_assets, normalize_slug
 from scripts.pages import coloring, counting, dot_to_dot, matching, maze, tracing
 
 PageSpec = Dict[str, Any]
@@ -37,6 +38,7 @@ class ActivityBookletGenerator:
         self.c = canvas.Canvas(str(output_path), pagesize=A4)
         self.width, self.height = A4
         self.margin = max(0.75 * inch, kid_margin(self.width, self.height))
+        self.asset_map = load_assets()
         self._renderers: Dict[str, PageRenderer] = {
             "coloring": coloring.render,
             "tracing": tracing.render,
@@ -91,7 +93,14 @@ class ActivityBookletGenerator:
             "width": self.width,
             "height": self.height,
             "margin": self.margin,
+            "asset_lookup": self.lookup_asset,
         }
+
+    def lookup_asset(self, name: str | None) -> Path | None:
+        if not name:
+            return None
+        slug = normalize_slug(str(name))
+        return self.asset_map.get(slug)
 
     def _resolve_renderer(self, page_type: Any) -> PageRenderer:
         normalized = str(page_type or "coloring").lower().strip()

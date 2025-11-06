@@ -1,5 +1,6 @@
 # Core for your renderer & schema checks
 reportlab==4.*
+svglib==1.*
 pillow==10.*
 jsonschema==4.*
 
