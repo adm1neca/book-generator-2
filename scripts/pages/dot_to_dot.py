@@ -8,6 +8,8 @@ from typing import Any, Dict, Iterable, Tuple
 from reportlab.lib import colors
 from reportlab.pdfgen.canvas import Canvas
 
+from scripts.helpers import RenderContext, constants
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,20 +47,28 @@ def _draw_shape_outline_dashed(c: Canvas, shape: str, dots: Iterable[Dot]) -> No
     c.restoreState()
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a dot-to-dot activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
     title = page_spec.get("title", "Connect the Dots")
     shape = page_spec.get("shape", "star")
     logger.info(f"Rendering dot-to-dot page: {title}, shape: {shape}")
 
-    helpers["draw_border"]()
-    helpers["draw_title"](title)
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(title, constants.OFFSET_TITLE)
 
+    # Get configuration
     dots_count = page_spec.get("dots", 12)
-    helpers["draw_instruction"](f"Connect 1 to {dots_count}")
+    ctx.draw_instruction(f"Connect 1 to {dots_count}", constants.OFFSET_INSTRUCTION)
 
+    # Generate dot positions if not provided
     if "dot_positions" not in page_spec:
         logger.debug(f"Generating dot positions for shape '{shape}' with {dots_count} dots")
-        page_spec["dot_positions"] = helpers["generate_dot_positions"](shape, dots_count)
+        page_spec["dot_positions"] = ctx.generate_dot_positions(shape, dots_count)
 
     dots: Iterable[Dot] = page_spec["dot_positions"]
     dot_list = list(dots)
@@ -72,12 +82,12 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     c.setStrokeColor(colors.black)
     c.setFillColor(colors.black)
     c.setLineWidth(1)
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(constants.FONT_FAMILY_TITLE, 12)
 
-    # Draw numbered dots
+    # Draw numbered dots using constants
     for i, (x, y) in enumerate(dot_list[:dots_count], start=1):
         # Draw filled circle for dot
-        c.circle(x, y, 4, stroke=1, fill=1)
+        c.circle(x, y, constants.DOT_RADIUS, stroke=1, fill=1)
         # Draw number above dot
         c.drawCentredString(x, y + 10, str(i))
 

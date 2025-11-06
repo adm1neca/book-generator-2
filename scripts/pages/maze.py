@@ -9,6 +9,8 @@ from typing import Any, Dict, Set, Tuple
 from reportlab.lib import colors
 from reportlab.pdfgen.canvas import Canvas
 
+from scripts.helpers import RenderContext, constants
+
 
 logger = logging.getLogger(__name__)
 
@@ -125,19 +127,25 @@ def _draw_maze_grid(c: Canvas, grid_size: int, start_x: float, start_y: float,
     logger.debug(f"Drew {horizontal_walls} horizontal walls and {vertical_walls} vertical walls")
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a maze activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
     title = page_spec.get("title", "Maze")
     logger.info(f"Rendering maze page: {title}")
 
-    helpers["draw_border"]()
-    helpers["draw_title"](title)
-    helpers["draw_instruction"]("Help find the way through the maze!")
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(title, constants.OFFSET_TITLE)
+    ctx.draw_instruction("Help find the way through the maze!", constants.OFFSET_INSTRUCTION)
 
     # Determine maze size based on difficulty
     difficulty = page_spec.get("difficulty", "easy")
     if difficulty == "easy":
         maze_size = 5
-        cell_size = 60
+        cell_size = constants.GRID_SPACING_SMALL
     elif difficulty == "medium":
         maze_size = 6
         cell_size = 52
@@ -147,7 +155,7 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     else:
         # Fallback to custom size if provided
         maze_size = page_spec.get("maze_size", 5)
-        cell_size = page_spec.get("cell_size", 60)
+        cell_size = page_spec.get("cell_size", constants.GRID_SPACING_SMALL)
 
     logger.info(f"Maze difficulty: {difficulty}, size: {maze_size}x{maze_size}, cell_size: {cell_size}px")
 
@@ -158,10 +166,12 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     # Generate maze
     walls_to_remove = _generate_simple_maze(maze_size, seed)
 
-    start_x = helpers["width"] / 2 - (maze_size * cell_size) / 2
-    start_y = helpers["height"] / 2 + (maze_size * cell_size) / 2 - 20
+    # Center the maze on the canvas
+    start_x = ctx.center_x - (maze_size * cell_size) / 2
+    start_y = ctx.center_y + (maze_size * cell_size) / 2 - 20
 
-    c.setLineWidth(max(3, helpers["kid_stroke"]() - 1))
+    # Set line width using kid-friendly stroke
+    c.setLineWidth(max(3, ctx.kid_stroke_width - 1))
     c.setStrokeColor(colors.black)
 
     # Draw maze grid
@@ -183,7 +193,7 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
 
     # Draw labels
     c.setFillColor(colors.black)
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(constants.FONT_FAMILY_TITLE, 12)
     c.drawString(start_x - 40, start_y - cell_size / 2 - 4, "START")
     c.drawString(
         start_x + maze_size * cell_size + 10,
