@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
@@ -15,6 +16,9 @@ from scripts.drawing.shapes import get_renderer
 from scripts.assets import load_assets
 
 
+logger = logging.getLogger(__name__)
+
+
 # Lazy load assets
 _ASSETS = None
 
@@ -23,7 +27,9 @@ def _get_assets():
     """Lazy load assets on first use."""
     global _ASSETS
     if _ASSETS is None:
+        logger.info("Loading assets from assets directory...")
         _ASSETS = load_assets()
+        logger.info(f"Loaded {len(_ASSETS)} assets: {list(_ASSETS.keys())}")
     return _ASSETS
 
 
@@ -31,12 +37,14 @@ def _draw_shape_from_library(c: Canvas, x: float, y: float, shape_name: str, siz
     """Draw a shape from the shape library, centered at (x, y)."""
     renderer = get_renderer(shape_name)
     if renderer:
+        logger.debug(f"Drawing shape from library: {shape_name} at ({x}, {y}), size={size}")
         # Save state and translate to create centered box
         c.saveState()
         c.translate(x - size / 2, y - size / 2)
         renderer(c, size, size)
         c.restoreState()
     else:
+        logger.warning(f"Shape renderer not found for '{shape_name}', using fallback circle")
         # Fallback to circle
         c.circle(x, y, size / 2, stroke=1, fill=0)
 
@@ -50,6 +58,7 @@ def _draw_svg_asset(c: Canvas, x: float, y: float, asset_name: str, size: float 
 
     if slug in assets:
         asset_path = assets[slug]
+        logger.debug(f"Found asset '{slug}' at path: {asset_path}")
         if asset_path.suffix.lower() == '.svg':
             try:
                 # Load and render SVG
@@ -57,6 +66,7 @@ def _draw_svg_asset(c: Canvas, x: float, y: float, asset_name: str, size: float 
                 if drawing:
                     # Calculate scale to fit in size box
                     scale = min(size / drawing.width, size / drawing.height)
+                    logger.debug(f"Rendering SVG '{slug}' at ({x}, {y}), scale={scale:.2f}")
 
                     # Save state, translate and scale
                     c.saveState()
@@ -67,8 +77,10 @@ def _draw_svg_asset(c: Canvas, x: float, y: float, asset_name: str, size: float 
                     renderPDF.draw(drawing, c, 0, 0)
                     c.restoreState()
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to render SVG '{slug}': {e}")
+    else:
+        logger.debug(f"Asset '{slug}' not found in assets, trying shape library")
 
     # Fallback: try to draw from shape library
     _draw_shape_from_library(c, x, y, asset_name, size)
@@ -84,6 +96,7 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
     """Draw a matching item - supports shapes, SVG assets, numbers, and colors."""
     if isinstance(item, dict):
         item_type = item.get("type", "shape")
+        logger.debug(f"Drawing matching item type '{item_type}': {item}")
         if item_type == "shape":
             _draw_shape(c, x, y, item.get("shape", "circle"), size)
         elif item_type == "number":
@@ -93,7 +106,8 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
             try:
                 c.setFillColor(colors.HexColor(item.get("color", "#000000")))
                 c.circle(x, y, size / 2, stroke=1, fill=1)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Failed to render color {item.get('color')}: {e}")
                 c.circle(x, y, size / 2, stroke=1, fill=0)
             finally:
                 c.setFillColor(colors.black)
@@ -106,19 +120,25 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
         assets = _get_assets()
         # Check if it's a known shape or asset
         if item_str.lower() in assets or get_renderer(item_str):
+            logger.debug(f"Rendering plain string '{item_str}' as shape/asset")
             _draw_shape(c, x, y, item_str, size)
         else:
             # Otherwise render as text
+            logger.debug(f"Rendering plain string '{item_str}' as text")
             c.setFont("Helvetica-Bold", 36)
             c.drawCentredString(x, y - 12, item_str)
 
 
 def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+    logger.info(f"Rendering matching page: {page_spec.get('title', 'Match the Pairs')}")
+
     helpers["draw_border"]()
     helpers["draw_title"](page_spec.get("title", "Match the Pairs"))
     helpers["draw_instruction"]("Draw lines to match the pairs!")
 
     pairs: Sequence[Any] = page_spec.get("pairs", [])
+    logger.info(f"Rendering {len(pairs)} pairs")
+
     left_x = helpers["width"] * 0.25
     right_x = helpers["width"] * 0.75
     start_y = helpers["height"] - 150
@@ -134,11 +154,16 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
 
     for i, pair in enumerate(pairs):
         if i >= 4:
+            logger.debug(f"Limiting to 4 pairs (skipping remaining {len(pairs) - 4})")
             break
         y = start_y - i * spacing
         left_item = pair[0] if isinstance(pair, paired_types) else pair
+        logger.debug(f"Pair {i+1}: left={left_item}, right={right_items[i] if i < len(right_items) else 'none'}")
+
         _draw_matching_item(c, left_x, y, left_item, item_size)
         if i < len(right_items):
             _draw_matching_item(c, right_x, y, right_items[i], item_size)
         c.circle(left_x + 45, y, 5, stroke=1, fill=0)
         c.circle(right_x - 45, y, 5, stroke=1, fill=0)
+
+    logger.info("Matching page rendering complete")

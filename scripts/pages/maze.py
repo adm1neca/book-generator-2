@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from typing import Any, Dict, Set, Tuple
 
 from reportlab.lib import colors
 from reportlab.pdfgen.canvas import Canvas
+
+
+logger = logging.getLogger(__name__)
 
 
 def _generate_simple_maze(grid_size: int, seed: int = None) -> Set[Tuple[int, int, str]]:
@@ -23,6 +27,7 @@ def _generate_simple_maze(grid_size: int, seed: int = None) -> Set[Tuple[int, in
     """
     if seed is not None:
         random.seed(seed)
+        logger.debug(f"Generating maze with seed={seed}, grid_size={grid_size}")
 
     # Track visited cells
     visited: Set[Tuple[int, int]] = set()
@@ -71,12 +76,19 @@ def _generate_simple_maze(grid_size: int, seed: int = None) -> Set[Tuple[int, in
     # Start from top-left (0, 0)
     carve_path(0, 0)
 
+    logger.info(f"Generated maze: {len(visited)} cells visited, {len(walls_to_remove)} walls removed")
+    logger.debug(f"Walls removed: {walls_to_remove}")
+
     return walls_to_remove
 
 
 def _draw_maze_grid(c: Canvas, grid_size: int, start_x: float, start_y: float,
                     cell_size: float, walls_to_remove: Set[Tuple[int, int, str]]) -> None:
     """Draw a maze grid with walls."""
+    logger.debug(f"Drawing maze grid: grid_size={grid_size}, cell_size={cell_size}")
+
+    horizontal_walls = 0
+    vertical_walls = 0
 
     # Draw all horizontal lines (except where walls are removed)
     for y in range(grid_size + 1):
@@ -92,6 +104,7 @@ def _draw_maze_grid(c: Canvas, grid_size: int, start_x: float, start_y: float,
                 x2 = start_x + (x + 1) * cell_size
                 y_pos = start_y - y * cell_size
                 c.line(x1, y_pos, x2, y_pos)
+                horizontal_walls += 1
 
     # Draw all vertical lines (except where walls are removed)
     for x in range(grid_size + 1):
@@ -107,11 +120,17 @@ def _draw_maze_grid(c: Canvas, grid_size: int, start_x: float, start_y: float,
                 y2 = start_y - (y + 1) * cell_size
                 x_pos = start_x + x * cell_size
                 c.line(x_pos, y1, x_pos, y2)
+                vertical_walls += 1
+
+    logger.debug(f"Drew {horizontal_walls} horizontal walls and {vertical_walls} vertical walls")
 
 
 def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+    title = page_spec.get("title", "Maze")
+    logger.info(f"Rendering maze page: {title}")
+
     helpers["draw_border"]()
-    helpers["draw_title"](page_spec.get("title", "Maze"))
+    helpers["draw_title"](title)
     helpers["draw_instruction"]("Help find the way through the maze!")
 
     # Determine maze size based on difficulty
@@ -130,9 +149,11 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
         maze_size = page_spec.get("maze_size", 5)
         cell_size = page_spec.get("cell_size", 60)
 
+    logger.info(f"Maze difficulty: {difficulty}, size: {maze_size}x{maze_size}, cell_size: {cell_size}px")
+
     # Generate unique maze using page title hash as seed
-    title = page_spec.get("title", "Maze")
     seed = abs(hash(title)) % 10000
+    logger.debug(f"Using seed {seed} (from hash of '{title}')")
 
     # Generate maze
     walls_to_remove = _generate_simple_maze(maze_size, seed)
@@ -169,3 +190,5 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
         start_y - (maze_size - 0.5) * cell_size - 4,
         "END",
     )
+
+    logger.info("Maze page rendering complete")
