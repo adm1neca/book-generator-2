@@ -9,6 +9,7 @@ from typing import Any, Dict
 from reportlab.pdfgen.canvas import Canvas
 
 from scripts.drawing.shapes import get_renderer, RENDERERS
+from scripts.helpers import RenderContext, constants
 
 
 logger = logging.getLogger(__name__)
@@ -61,30 +62,38 @@ def _draw_traceable_text(c: Canvas, x: float, y: float, text: str, font_size: in
     c.restoreState()
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a tracing activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
     title = page_spec.get("title", "Tracing")
     content = page_spec.get("content", "A")
-    repetitions = page_spec.get("repetitions", 12)
+    repetitions = page_spec.get("repetitions", constants.DEFAULT_TRACING_REPETITIONS)
 
     logger.info(f"Rendering tracing page: {title}")
     logger.info(f"Content: '{content}', repetitions: {repetitions}")
 
-    helpers["draw_border"]()
-    helpers["draw_title"](title)
-    helpers["draw_instruction"]("Trace over the dotted lines")
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(title, constants.OFFSET_TITLE)
+    ctx.draw_instruction("Trace over the dotted lines", constants.OFFSET_INSTRUCTION)
 
     # Check if content is a shape or text
     is_shape = _is_shape(str(content))
     logger.info(f"Content type: {'shape' if is_shape else 'text'}")
 
-    cols = 3
+    # Calculate grid layout using constants
+    cols = constants.DEFAULT_TRACING_COLS
     rows = math.ceil(repetitions / cols)
-    start_y = helpers["height"] - 160
-    spacing_x = (helpers["width"] - 2 * helpers["margin"]) / cols
-    spacing_y = (helpers["height"] - 250) / rows
+    start_y = ctx.height - constants.OFFSET_CONTENT_START_TRACING
+    spacing_x = (ctx.width - 2 * ctx.margin) / cols
+    spacing_y = (ctx.height - 250) / rows  # 250 is buffer for title/instruction
 
     logger.debug(f"Layout: {cols} cols x {rows} rows, spacing_x={spacing_x:.1f}, spacing_y={spacing_y:.1f}")
 
+    # Draw tracing items
     for row in range(rows):
         for col in range(cols):
             if row * cols + col >= repetitions:
@@ -92,13 +101,13 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
 
             if is_shape:
                 # Draw shape with dotted outline
-                x = helpers["margin"] + col * spacing_x + spacing_x / 2
+                x = ctx.margin + col * spacing_x + spacing_x / 2
                 y = start_y - row * spacing_y - 50
                 _draw_traceable_shape(c, x, y, str(content), size=80)
             else:
                 # Draw text with dotted outline (stroke-only)
-                x = helpers["margin"] + col * spacing_x + spacing_x / 2 - 35
+                x = ctx.margin + col * spacing_x + spacing_x / 2 - 35
                 y = start_y - row * spacing_y
-                _draw_traceable_text(c, x, y, str(content), font_size=96)
+                _draw_traceable_text(c, x, y, str(content), font_size=constants.FONT_SIZE_TRACING_LARGE)
 
     logger.info("Tracing page rendering complete")

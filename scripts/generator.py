@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -12,10 +12,12 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from scripts.assets import load_assets, normalize_slug
+from scripts.helpers import RenderContext
 from scripts.pages import coloring, counting, dot_to_dot, matching, maze, tracing
 
 PageSpec = Dict[str, Any]
-PageRenderer = Callable[[canvas.Canvas, PageSpec, Dict[str, Any]], None]
+# Updated signature to use RenderContext instead of Dict
+PageRenderer = Callable[[canvas.Canvas, PageSpec, RenderContext], None]
 
 
 def kid_stroke(width: float, height: float) -> int:
@@ -82,19 +84,25 @@ class ActivityBookletGenerator:
     # ------------------------------------------------------------------
     # Page rendering orchestration
     # ------------------------------------------------------------------
-    def _page_helpers(self) -> Dict[str, Any]:
-        return {
-            "draw_border": self.draw_border,
-            "draw_title": self.draw_title,
-            "draw_instruction": self.draw_instruction,
-            "prep_kid_lines": self.prep_kid_lines,
-            "kid_stroke": self.kid_stroke,
-            "generate_dot_positions": self.generate_dot_positions,
-            "width": self.width,
-            "height": self.height,
-            "margin": self.margin,
-            "asset_lookup": self.lookup_asset,
-        }
+    def _page_helpers(self) -> RenderContext:
+        """
+        Create typed RenderContext for page rendering.
+
+        Replaces the old untyped dict-based helpers.
+        """
+        return RenderContext(
+            canvas=self.c,
+            width=self.width,
+            height=self.height,
+            margin=self.margin,
+            draw_border=self.draw_border,
+            draw_title=self.draw_title,
+            draw_instruction=self.draw_instruction,
+            prep_kid_lines=self.prep_kid_lines,
+            kid_stroke_width=self.kid_stroke(),
+            generate_dot_positions=self.generate_dot_positions,
+            asset_lookup=self.lookup_asset,
+        )
 
     def lookup_asset(self, name: str | None) -> Path | None:
         if not name:

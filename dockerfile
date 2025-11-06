@@ -25,6 +25,8 @@ COPY components /app/components
 COPY workdir /app/workdir
 # Assets: images and SVG files for activities
 COPY assets /app/assets
+COPY test_refactored.py /app/test_refactored.py
+COPY test_activities.py /app/test_activities.py
 
 # Optional: create output dir now (prevents first-run surprises)
 RUN mkdir -p /app/workdir/out

@@ -21,7 +21,7 @@ wheels/
 *.egg
 *.txt
 *.pdf
-*.svg
+#*.svg
 *.jpeg
 *.jpg
 

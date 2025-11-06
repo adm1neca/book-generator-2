@@ -12,8 +12,9 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 
-from scripts.drawing.shapes import get_renderer
 from scripts.assets import load_assets
+from scripts.drawing.shapes import get_renderer
+from scripts.helpers import RenderContext, constants
 
 
 logger = logging.getLogger(__name__)
@@ -140,40 +141,55 @@ def _draw_matching_item(c: Canvas, x: float, y: float, item: Any, size: float = 
             c.drawCentredString(x, y - 12, item_str)
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a matching activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
     logger.info(f"Rendering matching page: {page_spec.get('title', 'Match the Pairs')}")
 
-    helpers["draw_border"]()
-    helpers["draw_title"](page_spec.get("title", "Match the Pairs"))
-    helpers["draw_instruction"]("Draw lines to match the pairs!")
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(page_spec.get("title", "Match the Pairs"), constants.OFFSET_TITLE)
+    ctx.draw_instruction("Draw lines to match the pairs!", constants.OFFSET_INSTRUCTION)
 
+    # Get pairs configuration
     pairs: Sequence[Any] = page_spec.get("pairs", [])
     logger.info(f"Rendering {len(pairs)} pairs")
 
-    left_x = helpers["width"] * 0.25
-    right_x = helpers["width"] * 0.75
-    start_y = helpers["height"] - 150
-    spacing = 110  # Increased spacing for larger shapes
-    item_size = 70  # Size for shape/asset rendering
+    # Use constants for layout
+    left_x = ctx.width * 0.25
+    right_x = ctx.width * 0.75
+    start_y = ctx.height - constants.OFFSET_CONTENT_START_MATCHING
+    spacing = constants.GRID_SPACING_LARGE
+    item_size = constants.ITEM_SIZE_MEDIUM
 
-    c.setLineWidth(max(2, helpers["kid_stroke"]() - 2))
+    # Set stroke width
+    c.setLineWidth(max(2, ctx.kid_stroke_width - 2))
     c.setStrokeColor(colors.black)
 
+    # Shuffle right items for matching activity
     paired_types = (list, tuple)
     right_items = [pair[1] if isinstance(pair, paired_types) else pair for pair in pairs]
     random.shuffle(right_items)
 
+    # Draw matching pairs (limit to 4 to fit on page)
     for i, pair in enumerate(pairs):
         if i >= 4:
             logger.debug(f"Limiting to 4 pairs (skipping remaining {len(pairs) - 4})")
             break
+
         y = start_y - i * spacing
         left_item = pair[0] if isinstance(pair, paired_types) else pair
         logger.debug(f"Pair {i+1}: left={left_item}, right={right_items[i] if i < len(right_items) else 'none'}")
 
+        # Draw items
         _draw_matching_item(c, left_x, y, left_item, item_size)
         if i < len(right_items):
             _draw_matching_item(c, right_x, y, right_items[i], item_size)
+
+        # Draw connection dots
         c.circle(left_x + 45, y, 5, stroke=1, fill=0)
         c.circle(right_x - 45, y, 5, stroke=1, fill=0)
 

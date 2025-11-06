@@ -13,6 +13,7 @@ from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 
 from scripts.drawing.shapes import get_renderer
+from scripts.helpers import RenderContext, constants
 
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,9 @@ logger = logging.getLogger(__name__)
 _RASTER_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
-def _coloring_box(helpers: Dict[str, Any]) -> Tuple[float, float, float, float]:
-    width = float(helpers["width"])
-    height = float(helpers["height"])
-    margin = float(helpers.get("margin", min(width, height) * 0.07))
-    return margin, margin, width - 2 * margin, height - 2 * margin
+def _coloring_box(ctx: RenderContext) -> Tuple[float, float, float, float]:
+    """Calculate the bounding box for coloring content."""
+    return ctx.margin, ctx.margin, ctx.content_width, ctx.content_height
 
 
 def _draw_asset(c: Canvas, path: Path, box: Tuple[float, float, float, float]) -> bool:
@@ -74,32 +73,43 @@ def _draw_asset(c: Canvas, path: Path, box: Tuple[float, float, float, float]) -
     return True
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
-    helpers["draw_border"]()
-    helpers["draw_title"](page_spec.get("title", "Coloring Page"))
-    helpers["draw_instruction"](
-        page_spec.get("instruction", "Use your favorite crayons!")
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a coloring activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(page_spec.get("title", "Coloring Page"), constants.OFFSET_TITLE)
+    ctx.draw_instruction(
+        page_spec.get("instruction", "Use your favorite crayons!"),
+        constants.OFFSET_INSTRUCTION,
     )
 
-    helpers["prep_kid_lines"]()
+    # Prepare kid-friendly lines
+    ctx.prep_kid_lines()
     c.setFillColor(colors.white)
-    asset_lookup = helpers.get("asset_lookup")
+
+    # Get subject to color
     subject = (
         page_spec.get("subject")
         or page_spec.get("subjectHint")
         or "circle"
     )
 
+    # Try to load asset from file
     asset_path = None
-    if callable(asset_lookup):
-        if page_spec.get("asset"):
-            asset_path = asset_lookup(page_spec["asset"])
-        if asset_path is None and subject:
-            asset_path = asset_lookup(subject)
+    if page_spec.get("asset"):
+        asset_path = ctx.asset_lookup(page_spec["asset"])
+    if asset_path is None and subject:
+        asset_path = ctx.asset_lookup(subject)
 
+    # Draw asset if found, otherwise use shape renderer
     if isinstance(asset_path, Path) and asset_path.exists():
-        if _draw_asset(c, asset_path, _coloring_box(helpers)):
+        if _draw_asset(c, asset_path, _coloring_box(ctx)):
             return
 
+    # Fallback to shape renderer
     renderer = get_renderer(subject)
-    renderer(c, helpers["width"], helpers["height"])
+    renderer(c, ctx.width, ctx.height)
