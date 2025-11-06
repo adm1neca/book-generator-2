@@ -70,15 +70,25 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     # Reset to solid line and black for dots
     c.setDash()  # Remove dash pattern
     c.setStrokeColor(colors.black)
-    c.setFillColor(colors.black)
-    c.setLineWidth(1)
-    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(colors.white)  # White fill for better visibility
+    c.setLineWidth(2)
 
-    # Draw numbered dots
+    # Use larger font for numbers - easier for kids to see
+    c.setFont("Helvetica-Bold", 18)
+
+    # Draw numbered dots - MUCH LARGER for kids
+    circle_radius = 14  # Larger circles (was 4)
+
+    logger.debug(f"Drawing dots with radius={circle_radius}, font=18pt")
+
     for i, (x, y) in enumerate(dot_list[:dots_count], start=1):
-        # Draw filled circle for dot
-        c.circle(x, y, 4, stroke=1, fill=1)
-        # Draw number above dot
-        c.drawCentredString(x, y + 10, str(i))
+        # Draw large hollow circle with thick border
+        c.circle(x, y, circle_radius, stroke=1, fill=1)
+
+        # Draw number inside the circle (centered)
+        c.setFillColor(colors.black)
+        # Adjust y position to center text vertically in circle
+        c.drawCentredString(x, y - 6, str(i))
+        c.setFillColor(colors.white)  # Reset fill color
 
     logger.info("Dot-to-dot page rendering complete")
