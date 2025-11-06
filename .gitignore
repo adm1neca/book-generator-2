@@ -21,6 +21,9 @@ wheels/
 *.egg
 *.txt
 *.pdf
+*.svg
+*.jpeg
+*.jpg
 
 # Virtual environments
 venv/
