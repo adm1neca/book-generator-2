@@ -2,13 +2,10 @@ from langflow.custom import Component
 from langflow.io import MessageTextInput, Output, SecretStrInput, DataInput
 from langflow.schema import Data
 from typing import List, Tuple, Optional, Dict
-import json
-import re
 import time
 import random
 from datetime import datetime
 from pathlib import Path
-from anthropic import Anthropic
 
 # Configuration modules (Phase 1 refactoring)
 from components.config import (
@@ -19,6 +16,13 @@ from components.config import (
 
 # Prompt building strategies (Phase 2 refactoring)
 from components.prompts import PromptBuilderFactory
+
+# API client modules (Phase 3 refactoring)
+from components.api import (
+    ClaudeAPIClient,
+    ResponseParser,
+    RetryHandler
+)
 
 class ClaudeProcessor(Component):
     display_name = "Claude Activity Processor 2"
@@ -206,100 +210,36 @@ class ClaudeProcessor(Component):
             self.log(f"Failed to dump Claude dummy data: {exc}")
             return None
 
-    # ---------- Utility: JSON extraction + retry ----------
-    def _extract_json(self, text: str) -> Optional[dict]:
-        # Strip code fences
-        cleaned = re.sub(r"```(?:json)?\s*", "", text)
-        cleaned = cleaned.replace("```", "")
-        m = re.search(r"\{[\s\S]*\}", cleaned)
-        if not m:
-            return None
-        blob = m.group(0)
-        try:
-            return json.loads(blob)
-        except json.JSONDecodeError:
-            # Gentle cleanup: trailing commas before } or ]
-            blob2 = re.sub(r",\s*([}\]])", r"\1", blob)
-            try:
-                return json.loads(blob2)
-            except Exception:
-                return None
-
+    # ---------- API Communication ----------
+    # REFACTORED: Phase 3 - Uses ClaudeAPIClient + RetryHandler
     def _call_with_retry(self, prompt: str, api_key: str, page_number: int, retries: int = 2) -> Tuple[Optional[dict], str]:
-        last_raw = ""
-        for i in range(retries + 1):
-            raw = self.call_claude(prompt, api_key, page_number)
-            parsed = self._extract_json(raw)
-            if parsed is not None:
-                return parsed, raw
-            last_raw = raw
-            time.sleep(0.4 * (i + 1))
-        return None, last_raw
+        """Call Claude API with retry logic.
 
-    # ---------- Anthropic call ----------
-    def call_claude(self, prompt: str, api_key: str, page_number: int = 0) -> str:
-        """Call Claude API using official Anthropic SDK with detailed logging"""
-        print(f"\n📤 Calling Claude API for page {page_number}...")
-        self.log(f"\n{'='*60}")
-        self.log(f"📤 SENDING TO CLAUDE (Page {page_number})")
-        self.log(f"{'='*60}")
-        self.log(f"PROMPT:\n{prompt}")
-        self.log(f"{'='*60}\n")
+        Args:
+            prompt: The prompt to send to Claude
+            api_key: Anthropic API key
+            page_number: Page number for logging
+            retries: Number of retry attempts
 
-        try:
-            client = Anthropic(api_key=api_key)
-            model = getattr(self, 'model_name', 'claude-3-5-sonnet') or 'claude-3-5-sonnet'
-            print(f"🤖 Using model: {model}")
+        Returns:
+            Tuple of (parsed_json, raw_response)
+        """
+        # Initialize API client
+        model = getattr(self, 'model_name', 'claude-3-5-sonnet') or 'claude-3-5-sonnet'
+        client = ClaudeAPIClient(api_key=api_key, model=model, max_tokens=768)
+        client.set_logger(self.log)
 
-            message = client.messages.create(
-                model=model,
-                max_tokens=768,   # leaner default
-                messages=[{"role": "user", "content": prompt}]
-            )
+        # Create retry handler
+        retry_handler = RetryHandler(base_delay=0.4)
 
-            response_text = message.content[0].text
-            print(f"✅ Claude API response received for page {page_number}")
+        # Make API call with retry
+        api_call = lambda: client.send_message(prompt, page_number=page_number)
+        parsed, raw = retry_handler.call_with_retry(api_call, retries=retries)
 
-            # Usage logging if available
-            usage = getattr(message, "usage", None)
-            if usage:
-                self.log(f"Token usage - input:{getattr(usage,'input_tokens', 'n/a')} output:{getattr(usage,'output_tokens','n/a')}")
+        # Merge client logs into detailed_logs
+        self.detailed_logs.extend(client.get_detailed_logs())
 
-            self.log(f"\n{'='*60}")
-            self.log(f"📥 RECEIVED FROM CLAUDE (Page {page_number})")
-            self.log(f"{'='*60}")
-            self.log(f"RESPONSE:\n{response_text}")
-            self.log(f"{'='*60}\n")
-
-            self.detailed_logs.append({
-                'timestamp': datetime.now().isoformat(),
-                'page_number': page_number,
-                'prompt': prompt,
-                'response': response_text
-            })
-
-            return response_text
-
-        except Exception as e:
-            error_msg = f"API Error: {str(e)}"
-            print(f"❌ ERROR calling Claude API for page {page_number}: {error_msg}")
-
-            if "404" in str(e) or "not_found" in str(e):
-                print("💡 TIP: Model not found. Try: claude-3-5-sonnet, claude-sonnet-4, or check API key access")
-
-            self.log(f"\n{'='*60}")
-            self.log(f"❌ ERROR calling Claude (Page {page_number})")
-            self.log(f"{'='*60}")
-            self.log(f"Error: {error_msg}")
-            self.log(f"{'='*60}\n")
-
-            self.detailed_logs.append({
-                'timestamp': datetime.now().isoformat(),
-                'page_number': page_number,
-                'prompt': prompt,
-                'response': f"ERROR: {error_msg}"
-            })
-            raise
+        return parsed, raw
 
     # ---------- Prompt builder ----------
     # REFACTORED: Phase 2 - Uses Strategy Pattern for prompt building
