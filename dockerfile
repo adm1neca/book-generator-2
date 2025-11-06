@@ -5,6 +5,9 @@ FROM langflowai/langflow:latest
 USER root
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     ca-certificates curl \
+    build-essential \
+    pkg-config \
+    libcairo2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure pip exists for the runtime python and install deps
@@ -20,6 +23,8 @@ RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt
 COPY components /app/components
 # Workdir: your renderer, outputs live here (/app/workdir/out)
 COPY workdir /app/workdir
+# Assets: images and SVG files for activities
+COPY assets /app/assets
 
 # Optional: create output dir now (prevents first-run surprises)
 RUN mkdir -p /app/workdir/out
