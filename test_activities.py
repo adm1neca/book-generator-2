@@ -23,7 +23,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from scripts.pages import matching, maze, dot_to_dot, tracing
-from scripts.helpers.render_context import RenderContext
+from scripts.helpers import Primitives, RenderContext
 
 
 # Configure logging
@@ -63,87 +63,27 @@ def create_render_context(c: Canvas, width: float, height: float, margin: float 
 
     def generate_dot_positions(shape: str, num_dots: int):
         """Generate dot positions for dot-to-dot activity."""
-        import math
         center_x, center_y = width / 2, height / 2
-        positions = []
 
-        if shape == "star":
-            outer_radius = 110
-            inner_radius = 60
-            for i in range(num_dots):
-                angle = math.pi / 2 + i * 2 * math.pi / num_dots
-                radius = outer_radius if i % 2 == 0 else inner_radius
-                x = center_x + radius * math.cos(angle)
-                y = center_y - radius * math.sin(angle)
-                positions.append((x, y))
-        elif shape == "circle":
-            radius = 110
-            for i in range(num_dots):
-                angle = i * 2 * math.pi / num_dots
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                positions.append((x, y))
-        elif shape == "heart":
-            for i in range(num_dots):
-                t = i * 2 * math.pi / num_dots
-                x = center_x + 16 * math.pow(math.sin(t), 3) * 5
-                y = center_y + (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) * 5
-                positions.append((x, y))
-        elif shape == "square":
-            # Distribute dots around the perimeter of a square
-            side_length = 200
-            perimeter = 4 * side_length
-            for i in range(num_dots):
-                pos = (i / num_dots) * perimeter
-                if pos < side_length:  # Top side
-                    x = center_x - side_length / 2 + pos
-                    y = center_y + side_length / 2
-                elif pos < 2 * side_length:  # Right side
-                    x = center_x + side_length / 2
-                    y = center_y + side_length / 2 - (pos - side_length)
-                elif pos < 3 * side_length:  # Bottom side
-                    x = center_x + side_length / 2 - (pos - 2 * side_length)
-                    y = center_y - side_length / 2
-                else:  # Left side
-                    x = center_x - side_length / 2
-                    y = center_y - side_length / 2 + (pos - 3 * side_length)
-                positions.append((x, y))
-        elif shape == "triangle":
-            # Distribute dots around the perimeter of an equilateral triangle
-            height_tri = 190
-            base = height_tri * 2 / math.sqrt(3)
-            vertices = [
-                (center_x, center_y + height_tri / 2),  # Top
-                (center_x + base / 2, center_y - height_tri / 2),  # Bottom-right
-                (center_x - base / 2, center_y - height_tri / 2),  # Bottom-left
-            ]
-            side_length = base
-            perimeter = 3 * side_length
-            for i in range(num_dots):
-                pos = (i / num_dots) * perimeter
-                if pos < side_length:  # Side 1
-                    t = pos / side_length
-                    x = vertices[0][0] + t * (vertices[1][0] - vertices[0][0])
-                    y = vertices[0][1] + t * (vertices[1][1] - vertices[0][1])
-                elif pos < 2 * side_length:  # Side 2
-                    t = (pos - side_length) / side_length
-                    x = vertices[1][0] + t * (vertices[2][0] - vertices[1][0])
-                    y = vertices[1][1] + t * (vertices[2][1] - vertices[1][1])
-                else:  # Side 3
-                    t = (pos - 2 * side_length) / side_length
-                    x = vertices[2][0] + t * (vertices[0][0] - vertices[2][0])
-                    y = vertices[2][1] + t * (vertices[0][1] - vertices[2][1])
-                positions.append((x, y))
-        else:
-            # Default to circle
-            radius = 110
-            for i in range(num_dots):
-                angle = i * 2 * math.pi / num_dots
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                positions.append((x, y))
+        generators = {
+            "star": Primitives.generate_dot_positions_star,
+            "circle": Primitives.generate_dot_positions_circle,
+            "heart": Primitives.generate_dot_positions_heart,
+            "square": Primitives.generate_dot_positions_square,
+            "triangle": Primitives.generate_dot_positions_triangle,
+            "diamond": Primitives.generate_dot_positions_diamond,
+            "house": Primitives.generate_dot_positions_house,
+            "tree": Primitives.generate_dot_positions_tree,
+            "flower": Primitives.generate_dot_positions_flower,
+            "butterfly": Primitives.generate_dot_positions_butterfly,
+            "fish": Primitives.generate_dot_positions_fish,
+            "apple": Primitives.generate_dot_positions_apple,
+        }
 
-        return positions
+        generator = generators.get(
+            str(shape or "circle").lower(), Primitives.generate_dot_positions_circle
+        )
+        return generator(center_x, center_y, num_dots)
 
     def asset_lookup(name):
         """Mock asset lookup."""
