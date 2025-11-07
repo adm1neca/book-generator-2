@@ -195,6 +195,71 @@ class Primitives:
         return dots
 
     @staticmethod
+    def _sample_closed_path(
+        points: list[tuple[float, float]],
+        num_samples: int,
+    ) -> list[tuple[float, float]]:
+        """Sample evenly spaced points along a closed polyline path."""
+
+        if num_samples <= 0:
+            return []
+
+        if not points:
+            return []
+
+        # Ensure we have at least two points to form segments
+        if len(points) == 1:
+            return [points[0]] * num_samples
+
+        # Pre-compute cumulative segment lengths for proportional sampling
+        segment_lengths: list[float] = []
+        total_length = 0.0
+        for index, start in enumerate(points):
+            end = points[(index + 1) % len(points)]
+            length = math.hypot(end[0] - start[0], end[1] - start[1])
+            segment_lengths.append(length)
+            total_length += length
+
+        if total_length == 0:
+            return [points[0]] * num_samples
+
+        cumulative: list[float] = [0.0]
+        running_total = 0.0
+        for length in segment_lengths:
+            running_total += length
+            cumulative.append(running_total)
+
+        sampled: list[tuple[float, float]] = []
+        targets = [
+            (total_length * i) / num_samples for i in range(num_samples)
+        ]
+
+        segment_index = 0
+        for target in targets:
+            # Advance to the segment that contains the current target distance
+            while (
+                segment_index < len(segment_lengths) - 1
+                and target >= cumulative[segment_index + 1]
+            ):
+                segment_index += 1
+
+            segment_length = segment_lengths[segment_index]
+            if segment_length == 0:
+                sampled.append(points[segment_index])
+                continue
+
+            start = points[segment_index]
+            end = points[(segment_index + 1) % len(points)]
+            segment_start_distance = cumulative[segment_index]
+            position_ratio = (target - segment_start_distance) / segment_length
+
+            x = start[0] + (end[0] - start[0]) * position_ratio
+            y = start[1] + (end[1] - start[1]) * position_ratio
+            sampled.append((x, y))
+
+        return sampled
+
+    @staticmethod
     def generate_dot_positions_heart(
         center_x: float,
         center_y: float,
@@ -327,6 +392,192 @@ class Primitives:
 
             dots.append((x, y))
         return dots
+
+    @staticmethod
+    def generate_dot_positions_diamond(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        width: float = 200,
+        height: float = 220,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions outlining a diamond shape."""
+
+        points = [
+            (center_x, center_y + height / 2),
+            (center_x + width / 2, center_y),
+            (center_x, center_y - height / 2),
+            (center_x - width / 2, center_y),
+        ]
+        return Primitives._sample_closed_path(points, max(num_dots, 4))
+
+    @staticmethod
+    def generate_dot_positions_house(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        body_width: float = 220,
+        body_height: float = 140,
+        roof_height: float = 110,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions outlining a classic house silhouette."""
+
+        base_y = center_y - body_height / 2
+        top_y = base_y + body_height
+
+        points = [
+            (center_x - body_width / 2, base_y),
+            (center_x + body_width / 2, base_y),
+            (center_x + body_width / 2, top_y),
+            (center_x, top_y + roof_height),
+            (center_x - body_width / 2, top_y),
+        ]
+
+        return Primitives._sample_closed_path(points, max(num_dots, 8))
+
+    @staticmethod
+    def generate_dot_positions_tree(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        canopy_radius: float = 120,
+        trunk_width: float = 60,
+        trunk_height: float = 120,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions outlining a stylized tree."""
+
+        target = max(num_dots, 12)
+
+        canopy_center_y = center_y + trunk_height * 0.25
+        canopy_points: list[tuple[float, float]] = []
+        lobes = 6
+        for i in range(lobes * 2):
+            angle = (i / (lobes * 2)) * 2 * math.pi
+            radius = canopy_radius * (0.8 + 0.2 * math.sin(lobes * angle))
+            x = center_x + radius * math.cos(angle)
+            y = canopy_center_y + radius * 0.8 * math.sin(angle)
+            canopy_points.append((x, y))
+
+        trunk_top_y = center_y - trunk_height / 2
+        trunk_bottom_y = trunk_top_y - trunk_height
+        trunk_points = [
+            (center_x - trunk_width / 2, trunk_bottom_y),
+            (center_x + trunk_width / 2, trunk_bottom_y),
+            (center_x + trunk_width / 2, trunk_top_y),
+            (center_x - trunk_width / 2, trunk_top_y),
+        ]
+
+        path = canopy_points + trunk_points
+        return Primitives._sample_closed_path(path, target)
+
+    @staticmethod
+    def generate_dot_positions_flower(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        base_radius: float = 80,
+        petal_amplitude: float = 40,
+        petals: int = 6,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions approximating a multi-petal flower."""
+
+        target = max(num_dots, petals * 2)
+        dots = []
+        for i in range(target):
+            angle = (i / target) * 2 * math.pi
+            radius = base_radius + petal_amplitude * math.sin(petals * angle)
+            x = center_x + radius * math.cos(angle)
+            y = center_y + radius * math.sin(angle)
+            dots.append((x, y))
+        return dots
+
+    @staticmethod
+    def generate_dot_positions_butterfly(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        wing_span: float = 200,
+        wing_height: float = 140,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions for a stylized butterfly silhouette."""
+
+        target = max(num_dots, 16)
+        dots = []
+        for i in range(target):
+            angle = (i / target) * 2 * math.pi
+            # Create mirrored lobes for left/right wings using cosine weighting
+            horizontal = math.cos(angle)
+            vertical = math.sin(angle)
+            lobe_factor = 0.6 + 0.4 * abs(vertical)
+            wing_x = wing_span * 0.5 * horizontal * lobe_factor
+            wing_y = wing_height * 0.5 * vertical * (0.7 + 0.3 * abs(horizontal))
+
+            # Pinch shape toward the body at the center
+            body_pull = 40 * math.cos(2 * angle)
+            x = center_x + wing_x + body_pull
+            y = center_y + wing_y
+            dots.append((x, y))
+        return dots
+
+    @staticmethod
+    def generate_dot_positions_fish(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        body_length: float = 220,
+        body_height: float = 110,
+        tail_length: float = 90,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions outlining a fish with a triangular tail."""
+
+        points = [
+            (center_x + body_length / 2, center_y),  # nose
+            (center_x + body_length / 2 - 30, center_y + body_height / 2),
+            (center_x, center_y + body_height * 0.7),
+            (center_x - body_length / 2 + 20, center_y + body_height / 2),
+            (center_x - body_length / 2, center_y + tail_length / 2),
+            (center_x - body_length / 2 - tail_length, center_y),
+            (center_x - body_length / 2, center_y - tail_length / 2),
+            (center_x - body_length / 2 + 20, center_y - body_height / 2),
+            (center_x, center_y - body_height * 0.7),
+            (center_x + body_length / 2 - 30, center_y - body_height / 2),
+        ]
+
+        return Primitives._sample_closed_path(points, max(num_dots, 10))
+
+    @staticmethod
+    def generate_dot_positions_apple(
+        center_x: float,
+        center_y: float,
+        num_dots: int,
+        width: float = 170,
+        height: float = 190,
+    ) -> list[tuple[float, float]]:
+        """Generate dot positions outlining a plump apple."""
+
+        top_y = center_y + height / 2
+        bottom_y = center_y - height / 2
+
+        points = [
+            (center_x, top_y),
+            (center_x + width * 0.25, top_y * 0.98 + bottom_y * 0.02),
+            (center_x + width * 0.45, center_y + height * 0.35),
+            (center_x + width * 0.5, center_y),
+            (center_x + width * 0.35, center_y - height * 0.35),
+            (center_x, bottom_y),
+            (center_x - width * 0.35, center_y - height * 0.35),
+            (center_x - width * 0.5, center_y),
+            (center_x - width * 0.45, center_y + height * 0.35),
+            (center_x - width * 0.25, top_y * 0.98 + bottom_y * 0.02),
+        ]
+
+        # Create a gentle indentation at the top by nudging the first and last points inward
+        indentation = width * 0.15
+        points[0] = (center_x, top_y)
+        points[1] = (center_x + width * 0.2, top_y - indentation)
+        points[-1] = (center_x - width * 0.2, top_y - indentation)
+
+        return Primitives._sample_closed_path(points, max(num_dots, 12))
 
     @staticmethod
     def draw_dots(

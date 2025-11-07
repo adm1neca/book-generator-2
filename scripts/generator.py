@@ -1,8 +1,6 @@
 """Core activity booklet generator."""
 
 from __future__ import annotations
-
-import math
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -12,7 +10,7 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from scripts.assets import load_assets, normalize_slug
-from scripts.helpers import RenderContext
+from scripts.helpers import Primitives, RenderContext
 from scripts.pages import coloring, counting, dot_to_dot, matching, maze, tracing
 
 PageSpec = Dict[str, Any]
@@ -132,92 +130,25 @@ class ActivityBookletGenerator:
     ) -> List[Tuple[float, float]]:
         center_x = self.width / 2
         center_y = self.height / 2
-        dots: List[Tuple[float, float]] = []
+        shape_key = str(shape or "circle").lower().strip()
 
-        if shape == "star":
-            for i in range(num_dots):
-                angle = (i / num_dots) * 2 * math.pi
-                radius = 110 if i % 2 == 0 else 60
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                dots.append((x, y))
-        elif shape == "circle":
-            for i in range(num_dots):
-                angle = (i / num_dots) * 2 * math.pi
-                radius = 110
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                dots.append((x, y))
-        elif shape == "heart":
-            for i in range(num_dots):
-                t = (i / num_dots) * 2 * math.pi
-                x = center_x + 60 * (16 * math.sin(t) ** 3) / 16
-                y = center_y + 60 * (
-                    13 * math.cos(t)
-                    - 5 * math.cos(2 * t)
-                    - 2 * math.cos(3 * t)
-                    - math.cos(4 * t)
-                ) / 13
-                dots.append((x, y))
-        elif shape == "square":
-            # Distribute dots around the perimeter of a square
-            side_length = 200  # Total square side length
-            perimeter = 4 * side_length
-            dots_per_side = num_dots / 4
+        generators: Dict[str, Callable[[float, float, int], List[Tuple[float, float]]]] = {
+            "star": Primitives.generate_dot_positions_star,
+            "circle": Primitives.generate_dot_positions_circle,
+            "heart": Primitives.generate_dot_positions_heart,
+            "square": Primitives.generate_dot_positions_square,
+            "triangle": Primitives.generate_dot_positions_triangle,
+            "diamond": Primitives.generate_dot_positions_diamond,
+            "house": Primitives.generate_dot_positions_house,
+            "tree": Primitives.generate_dot_positions_tree,
+            "flower": Primitives.generate_dot_positions_flower,
+            "butterfly": Primitives.generate_dot_positions_butterfly,
+            "fish": Primitives.generate_dot_positions_fish,
+            "apple": Primitives.generate_dot_positions_apple,
+        }
 
-            for i in range(num_dots):
-                # Calculate position along perimeter (0 to perimeter)
-                pos = (i / num_dots) * perimeter
-
-                if pos < side_length:  # Top side
-                    x = center_x - side_length / 2 + pos
-                    y = center_y + side_length / 2
-                elif pos < 2 * side_length:  # Right side
-                    x = center_x + side_length / 2
-                    y = center_y + side_length / 2 - (pos - side_length)
-                elif pos < 3 * side_length:  # Bottom side
-                    x = center_x + side_length / 2 - (pos - 2 * side_length)
-                    y = center_y - side_length / 2
-                else:  # Left side
-                    x = center_x - side_length / 2
-                    y = center_y - side_length / 2 + (pos - 3 * side_length)
-
-                dots.append((x, y))
-        elif shape == "triangle":
-            # Distribute dots around the perimeter of an equilateral triangle
-            height = 190
-            base = height * 2 / math.sqrt(3)  # Equilateral triangle ratio
-
-            # Define the three vertices (top, bottom-right, bottom-left)
-            vertices = [
-                (center_x, center_y + height / 2),  # Top
-                (center_x + base / 2, center_y - height / 2),  # Bottom-right
-                (center_x - base / 2, center_y - height / 2),  # Bottom-left
-            ]
-
-            # Calculate perimeter
-            side_length = base
-            perimeter = 3 * side_length
-
-            for i in range(num_dots):
-                # Calculate position along perimeter
-                pos = (i / num_dots) * perimeter
-
-                if pos < side_length:  # Side 1: top to bottom-right
-                    t = pos / side_length
-                    x = vertices[0][0] + t * (vertices[1][0] - vertices[0][0])
-                    y = vertices[0][1] + t * (vertices[1][1] - vertices[0][1])
-                elif pos < 2 * side_length:  # Side 2: bottom-right to bottom-left
-                    t = (pos - side_length) / side_length
-                    x = vertices[1][0] + t * (vertices[2][0] - vertices[1][0])
-                    y = vertices[1][1] + t * (vertices[2][1] - vertices[1][1])
-                else:  # Side 3: bottom-left to top
-                    t = (pos - 2 * side_length) / side_length
-                    x = vertices[2][0] + t * (vertices[0][0] - vertices[2][0])
-                    y = vertices[2][1] + t * (vertices[0][1] - vertices[2][1])
-
-                dots.append((x, y))
-        return dots
+        generator = generators.get(shape_key, Primitives.generate_dot_positions_circle)
+        return generator(center_x, center_y, num_dots)
 
     def save(self) -> None:
         self.c.save()
