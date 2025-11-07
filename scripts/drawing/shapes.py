@@ -87,6 +87,11 @@ SYNONYMS: Dict[str, str] = {
     "spiky sun": "sun",
     "striped mushroom": "mushroom",
     "dotted leaf": "leaf",
+    "○": "circle",
+    "△": "triangle",
+    "□": "square",
+    "★": "star",
+    "♥": "heart",
 }
 
 
