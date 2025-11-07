@@ -21,6 +21,7 @@ Version: 1.0.0 (Phase 6 Refactoring)
 from .logger_facade import LoggerFacade
 from .limiter import PageLimiter, LimiterConfig
 from .page_processor import PageProcessor, ProcessorConfig, ProcessedPage
+from .pipeline import ProcessingPipeline, PipelineConfig, PipelineResult
 
 __all__ = [
     "LoggerFacade",
@@ -29,6 +30,9 @@ __all__ = [
     "PageProcessor",
     "ProcessorConfig",
     "ProcessedPage",
+    "ProcessingPipeline",
+    "PipelineConfig",
+    "PipelineResult",
 ]
 
 __version__ = "1.0.0"
