@@ -21,7 +21,7 @@ def _is_shape(content: str) -> bool:
     return normalized in RENDERERS or get_renderer(content) is not None
 
 
-def _draw_traceable_shape(c: Canvas, x: float, y: float, shape_name: str, size: float = 100) -> None:
+def _draw_traceable_shape(c: Canvas, x: float, y: float, shape_name: str, size: float = 120) -> None:
     """Draw a shape with dotted outline for tracing."""
     renderer = get_renderer(shape_name)
     if renderer:
@@ -31,8 +31,8 @@ def _draw_traceable_shape(c: Canvas, x: float, y: float, shape_name: str, size: 
         c.setDash(6, 6)
         c.setStrokeGray(0.5)
         c.setLineWidth(2)
-        # Translate to position
-        c.translate(x, y)
+        # Translate so shapes are centered within the tracing cell
+        c.translate(x - size / 2, y - size / 2)
         # Render the shape
         renderer(c, size, size)
         c.restoreState()
@@ -103,7 +103,7 @@ def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
                 # Draw shape with dotted outline
                 x = ctx.margin + col * spacing_x + spacing_x / 2
                 y = start_y - row * spacing_y - 50
-                _draw_traceable_shape(c, x, y, str(content), size=80)
+                _draw_traceable_shape(c, x, y, str(content), size=120)
             else:
                 # Draw text with dotted outline (stroke-only)
                 x = ctx.margin + col * spacing_x + spacing_x / 2 - 35
