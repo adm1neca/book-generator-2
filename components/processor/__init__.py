@@ -20,11 +20,15 @@ Version: 1.0.0 (Phase 6 Refactoring)
 
 from .logger_facade import LoggerFacade
 from .limiter import PageLimiter, LimiterConfig
+from .page_processor import PageProcessor, ProcessorConfig, ProcessedPage
 
 __all__ = [
     "LoggerFacade",
     "PageLimiter",
     "LimiterConfig",
+    "PageProcessor",
+    "ProcessorConfig",
+    "ProcessedPage",
 ]
 
 __version__ = "1.0.0"
