@@ -130,7 +130,42 @@ class ActivityBookletGenerator:
     ) -> List[Tuple[float, float]]:
         center_x = self.width / 2
         center_y = self.height / 2
-        shape_key = str(shape or "circle").lower().strip()
+
+        raw_key = str(shape or "circle").lower().strip()
+        normalized_key = raw_key.replace("_", "-").replace(" ", "-")
+
+        alias_map: Dict[str, str] = {
+            # Flower variations
+            "flowers": "flower",
+            "flower-outline": "flower",
+            "flower-shape": "flower",
+            "blossom": "flower",
+            "blossom-outline": "flower",
+            "daisy": "flower",
+            "sunflower": "flower",
+            "tulip": "flower",
+            # Fish variations / water creatures
+            "goldfish": "fish",
+            "clownfish": "fish",
+            "koi": "fish",
+            "sine-wave": "fish",
+            "wave": "fish",
+            "dolphin": "fish",
+            "whale": "fish",
+            # Tree variations
+            "pine-tree": "tree",
+            "pine": "tree",
+            "evergreen": "tree",
+            "fir-tree": "tree",
+            "spruce": "tree",
+            "christmas-tree": "tree",
+            "tree-outline": "tree",
+            # Generic fallbacks
+            "oval": "circle",
+            "round": "circle",
+        }
+
+        shape_key = alias_map.get(normalized_key, normalized_key)
 
         generators: Dict[str, Callable[[float, float, int], List[Tuple[float, float]]]] = {
             "star": Primitives.generate_dot_positions_star,
@@ -147,8 +182,23 @@ class ActivityBookletGenerator:
             "apple": Primitives.generate_dot_positions_apple,
         }
 
-        generator = generators.get(shape_key, Primitives.generate_dot_positions_circle)
-        return generator(center_x, center_y, num_dots)
+        generator = generators.get(shape_key)
+
+        try:
+            requested_dots = int(num_dots)
+        except (TypeError, ValueError):
+            requested_dots = 0
+        target_dots = max(requested_dots, 3)
+
+        if generator is None:
+            generator = Primitives.generate_dot_positions_circle
+            shape_key = "circle"
+
+        dots = generator(center_x, center_y, target_dots)
+        if not dots:
+            dots = Primitives.generate_dot_positions_circle(center_x, center_y, target_dots)
+
+        return dots
 
     def save(self) -> None:
         self.c.save()
