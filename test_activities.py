@@ -23,6 +23,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from scripts.pages import matching, maze, dot_to_dot, tracing
+from scripts.helpers import RenderContext
 
 
 # Configure logging
@@ -39,33 +40,33 @@ def setup_logging(debug: bool = False):
 
 
 # Helper functions that mimic the actual generator helpers
-def create_helpers(width: float, height: float, margin: float = 50):
-    """Create helper functions for renderers."""
+def create_render_context(c: Canvas, width: float, height: float, margin: float = 50):
+    """Create RenderContext for renderers (updated for refactored system)."""
+    import math
 
     def draw_border():
         """Draw page border."""
-        c = helpers["canvas"]
         c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
 
-    def draw_title(title: str):
+    def draw_title(title: str, y_offset: int = 50):
         """Draw page title."""
-        c = helpers["canvas"]
         c.setFont("Helvetica-Bold", 24)
-        c.drawCentredString(width / 2, height - 70, title)
+        c.drawCentredString(width / 2, height - y_offset, title)
 
-    def draw_instruction(instruction: str):
+    def draw_instruction(instruction: str, y_offset: int = 80):
         """Draw instruction text."""
-        c = helpers["canvas"]
         c.setFont("Helvetica", 14)
-        c.drawCentredString(width / 2, height - 100, instruction)
+        c.drawCentredString(width / 2, height - y_offset, instruction)
 
-    def kid_stroke():
-        """Return kid-friendly stroke width."""
-        return 4
+    def prep_kid_lines():
+        """Prepare kid-friendly lines."""
+        c.setLineWidth(4)
+        from reportlab.lib import colors
+        c.setStrokeColor(colors.black)
+        c.setFillColor(colors.white)
 
     def generate_dot_positions(shape: str, num_dots: int):
         """Generate dot positions for dot-to-dot activity."""
-        import math
         center_x, center_y = width / 2, height / 2
         positions = []
 
@@ -73,48 +74,49 @@ def create_helpers(width: float, height: float, margin: float = 50):
             outer_radius = 110
             inner_radius = 60
             for i in range(num_dots):
-                angle = math.pi / 2 + i * 2 * math.pi / num_dots
+                angle = (i / num_dots) * 2 * math.pi
                 radius = outer_radius if i % 2 == 0 else inner_radius
                 x = center_x + radius * math.cos(angle)
-                y = center_y - radius * math.sin(angle)
+                y = center_y + radius * math.sin(angle)
                 positions.append((x, y))
         elif shape == "circle":
             radius = 110
             for i in range(num_dots):
-                angle = i * 2 * math.pi / num_dots
+                angle = (i / num_dots) * 2 * math.pi
                 x = center_x + radius * math.cos(angle)
                 y = center_y + radius * math.sin(angle)
                 positions.append((x, y))
         elif shape == "heart":
             for i in range(num_dots):
-                t = i * 2 * math.pi / num_dots
-                x = center_x + 16 * math.pow(math.sin(t), 3) * 5
-                y = center_y + (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) * 5
+                t = (i / num_dots) * 2 * math.pi
+                x = center_x + 60 * (16 * math.sin(t) ** 3) / 16
+                y = center_y + 60 * (
+                    13 * math.cos(t)
+                    - 5 * math.cos(2 * t)
+                    - 2 * math.cos(3 * t)
+                    - math.cos(4 * t)
+                ) / 13
                 positions.append((x, y))
-        else:
-            # Default to circle
-            radius = 110
-            for i in range(num_dots):
-                angle = i * 2 * math.pi / num_dots
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                positions.append((x, y))
-
         return positions
 
-    helpers = {
-        "width": width,
-        "height": height,
-        "margin": margin,
-        "canvas": None,  # Will be set later
-        "draw_border": draw_border,
-        "draw_title": draw_title,
-        "draw_instruction": draw_instruction,
-        "kid_stroke": kid_stroke,
-        "generate_dot_positions": generate_dot_positions,
-    }
+    def asset_lookup(name):
+        """Mock asset lookup (returns None for tests)."""
+        return None
 
-    return helpers
+    # Create RenderContext with all required fields
+    return RenderContext(
+        canvas=c,
+        width=width,
+        height=height,
+        margin=margin,
+        draw_border=draw_border,
+        draw_title=draw_title,
+        draw_instruction=draw_instruction,
+        prep_kid_lines=prep_kid_lines,
+        kid_stroke_width=4,
+        generate_dot_positions=generate_dot_positions,
+        asset_lookup=asset_lookup,
+    )
 
 
 # Sample page specifications for testing
@@ -186,20 +188,19 @@ def render_activity_page(activity_type: str, page_spec: dict, output_path: Path)
     width, height = letter
     c = Canvas(str(output_path), pagesize=letter)
 
-    # Create helpers
-    helpers = create_helpers(width, height)
-    helpers["canvas"] = c
+    # Create RenderContext (updated for refactored system)
+    ctx = create_render_context(c, width, height)
 
     # Render based on activity type
     try:
         if activity_type == "matching":
-            matching.render(c, page_spec, helpers)
+            matching.render(c, page_spec, ctx)
         elif activity_type == "maze":
-            maze.render(c, page_spec, helpers)
+            maze.render(c, page_spec, ctx)
         elif activity_type == "dot-to-dot":
-            dot_to_dot.render(c, page_spec, helpers)
+            dot_to_dot.render(c, page_spec, ctx)
         elif activity_type == "tracing":
-            tracing.render(c, page_spec, helpers)
+            tracing.render(c, page_spec, ctx)
         else:
             logger.error(f"Unknown activity type: {activity_type}")
             return False
