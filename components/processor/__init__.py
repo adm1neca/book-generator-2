@@ -19,9 +19,12 @@ Version: 1.0.0 (Phase 6 Refactoring)
 """
 
 from .logger_facade import LoggerFacade
+from .limiter import PageLimiter, LimiterConfig
 
 __all__ = [
     "LoggerFacade",
+    "PageLimiter",
+    "LimiterConfig",
 ]
 
 __version__ = "1.0.0"
