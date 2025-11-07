@@ -23,7 +23,11 @@ def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
     ctx.draw_instruction("Count and write the number", constants.OFFSET_INSTRUCTION)
 
     # Get page configuration
-    count = page_spec.get("count", 5)
+    try:
+        count = int(page_spec.get("count", 5))
+    except (TypeError, ValueError):
+        count = 0
+    count = max(count, 0)
     item = page_spec.get("item", "circle")
 
     # Set stroke width using kid-friendly width
@@ -41,15 +45,16 @@ def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
 
     # Draw items at calculated positions using Primitives
     lower_item = str(item).lower()
-    for pos in positions:
-        if "circle" in lower_item:
-            Primitives.draw_circle(c, pos.x, pos.y, constants.STAR_OUTER_RADIUS)
-        elif "star" in lower_item:
-            Primitives.draw_star(c, pos.x, pos.y)
-        elif "heart" in lower_item:
-            Primitives.draw_heart(c, pos.x, pos.y)
-        else:
-            Primitives.draw_square(c, pos.x, pos.y, 30)
+    if positions:
+        for pos in positions:
+            if "circle" in lower_item:
+                Primitives.draw_circle(c, pos.x, pos.y, constants.STAR_OUTER_RADIUS)
+            elif "star" in lower_item:
+                Primitives.draw_star(c, pos.x, pos.y)
+            elif "heart" in lower_item:
+                Primitives.draw_heart(c, pos.x, pos.y)
+            else:
+                Primitives.draw_square(c, pos.x, pos.y, 30)
 
     # Draw answer box
     c.setFont(constants.FONT_FAMILY_BODY, constants.FONT_SIZE_NUMBER)

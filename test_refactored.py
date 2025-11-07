@@ -127,6 +127,34 @@ def test_prompt_strategies():
         assert 'TEST GUARD' in prompt
         print_success(f"{page_type:12} strategy works (selected: {selected})")
 
+    # Ensure counting strategy cycles through counts before repeating
+    from components.prompts.counting_strategy import CountingPromptStrategy
+    import random
+
+    random.seed(12345)
+    counting_strategy = CountingPromptStrategy()
+    used_items: list[str] = []
+    counts: list[int] = []
+
+    for page_number in range(1, 5):
+        prompt, selected = counting_strategy.build(
+            theme='animals',
+            difficulty='easy',
+            page_number=page_number,
+            used_items=used_items,
+            style_guard='TEST GUARD'
+        )
+
+        assert selected is not None
+        used_items.append(selected)
+
+        selected_count = int(selected.split('-')[0])
+        counts.append(selected_count)
+        assert 0 <= selected_count <= 15, "Count should remain within 0-15"
+
+    assert len(set(counts)) == len(counts) == 4, "First four counts should be unique"
+    print_success("Counting strategy cycles through unique counts before repeating")
+
     return True
 
 # ============================================================================

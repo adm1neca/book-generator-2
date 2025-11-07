@@ -55,6 +55,9 @@ class LayoutHelpers:
         Returns:
             List of GridPosition objects with x, y, row, col for each item
         """
+        if config.item_count <= 0:
+            return []
+
         # Calculate grid dimensions
         cols = min(config.max_cols, config.item_count)
         rows = math.ceil(config.item_count / cols)
