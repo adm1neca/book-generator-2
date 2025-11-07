@@ -23,6 +23,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from scripts.pages import matching, maze, dot_to_dot, tracing
+from scripts.helpers.render_context import RenderContext
 
 
 # Configure logging
@@ -39,29 +40,26 @@ def setup_logging(debug: bool = False):
 
 
 # Helper functions that mimic the actual generator helpers
-def create_helpers(width: float, height: float, margin: float = 50):
-    """Create helper functions for renderers."""
+def create_render_context(c: Canvas, width: float, height: float, margin: float = 50) -> RenderContext:
+    """Create RenderContext for renderers."""
 
     def draw_border():
         """Draw page border."""
-        c = helpers["canvas"]
         c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
 
-    def draw_title(title: str):
+    def draw_title(title: str, y_offset: int = 50):
         """Draw page title."""
-        c = helpers["canvas"]
         c.setFont("Helvetica-Bold", 24)
-        c.drawCentredString(width / 2, height - 70, title)
+        c.drawCentredString(width / 2, height - y_offset, title)
 
-    def draw_instruction(instruction: str):
+    def draw_instruction(instruction: str, y_offset: int = 80):
         """Draw instruction text."""
-        c = helpers["canvas"]
         c.setFont("Helvetica", 14)
-        c.drawCentredString(width / 2, height - 100, instruction)
+        c.drawCentredString(width / 2, height - y_offset, instruction)
 
-    def kid_stroke():
-        """Return kid-friendly stroke width."""
-        return 4
+    def prep_kid_lines():
+        """Prepare canvas for kid-friendly lines."""
+        c.setLineWidth(4)
 
     def generate_dot_positions(shape: str, num_dots: int):
         """Generate dot positions for dot-to-dot activity."""
@@ -91,6 +89,51 @@ def create_helpers(width: float, height: float, margin: float = 50):
                 x = center_x + 16 * math.pow(math.sin(t), 3) * 5
                 y = center_y + (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) * 5
                 positions.append((x, y))
+        elif shape == "square":
+            # Distribute dots around the perimeter of a square
+            side_length = 200
+            perimeter = 4 * side_length
+            for i in range(num_dots):
+                pos = (i / num_dots) * perimeter
+                if pos < side_length:  # Top side
+                    x = center_x - side_length / 2 + pos
+                    y = center_y + side_length / 2
+                elif pos < 2 * side_length:  # Right side
+                    x = center_x + side_length / 2
+                    y = center_y + side_length / 2 - (pos - side_length)
+                elif pos < 3 * side_length:  # Bottom side
+                    x = center_x + side_length / 2 - (pos - 2 * side_length)
+                    y = center_y - side_length / 2
+                else:  # Left side
+                    x = center_x - side_length / 2
+                    y = center_y - side_length / 2 + (pos - 3 * side_length)
+                positions.append((x, y))
+        elif shape == "triangle":
+            # Distribute dots around the perimeter of an equilateral triangle
+            height_tri = 190
+            base = height_tri * 2 / math.sqrt(3)
+            vertices = [
+                (center_x, center_y + height_tri / 2),  # Top
+                (center_x + base / 2, center_y - height_tri / 2),  # Bottom-right
+                (center_x - base / 2, center_y - height_tri / 2),  # Bottom-left
+            ]
+            side_length = base
+            perimeter = 3 * side_length
+            for i in range(num_dots):
+                pos = (i / num_dots) * perimeter
+                if pos < side_length:  # Side 1
+                    t = pos / side_length
+                    x = vertices[0][0] + t * (vertices[1][0] - vertices[0][0])
+                    y = vertices[0][1] + t * (vertices[1][1] - vertices[0][1])
+                elif pos < 2 * side_length:  # Side 2
+                    t = (pos - side_length) / side_length
+                    x = vertices[1][0] + t * (vertices[2][0] - vertices[1][0])
+                    y = vertices[1][1] + t * (vertices[2][1] - vertices[1][1])
+                else:  # Side 3
+                    t = (pos - 2 * side_length) / side_length
+                    x = vertices[2][0] + t * (vertices[0][0] - vertices[2][0])
+                    y = vertices[2][1] + t * (vertices[0][1] - vertices[2][1])
+                positions.append((x, y))
         else:
             # Default to circle
             radius = 110
@@ -102,19 +145,23 @@ def create_helpers(width: float, height: float, margin: float = 50):
 
         return positions
 
-    helpers = {
-        "width": width,
-        "height": height,
-        "margin": margin,
-        "canvas": None,  # Will be set later
-        "draw_border": draw_border,
-        "draw_title": draw_title,
-        "draw_instruction": draw_instruction,
-        "kid_stroke": kid_stroke,
-        "generate_dot_positions": generate_dot_positions,
-    }
+    def asset_lookup(name):
+        """Mock asset lookup."""
+        return None
 
-    return helpers
+    return RenderContext(
+        canvas=c,
+        width=width,
+        height=height,
+        margin=margin,
+        draw_border=draw_border,
+        draw_title=draw_title,
+        draw_instruction=draw_instruction,
+        prep_kid_lines=prep_kid_lines,
+        kid_stroke_width=4,
+        generate_dot_positions=generate_dot_positions,
+        asset_lookup=asset_lookup,
+    )
 
 
 # Sample page specifications for testing
@@ -186,20 +233,19 @@ def render_activity_page(activity_type: str, page_spec: dict, output_path: Path)
     width, height = letter
     c = Canvas(str(output_path), pagesize=letter)
 
-    # Create helpers
-    helpers = create_helpers(width, height)
-    helpers["canvas"] = c
+    # Create RenderContext
+    ctx = create_render_context(c, width, height)
 
     # Render based on activity type
     try:
         if activity_type == "matching":
-            matching.render(c, page_spec, helpers)
+            matching.render(c, page_spec, ctx)
         elif activity_type == "maze":
-            maze.render(c, page_spec, helpers)
+            maze.render(c, page_spec, ctx)
         elif activity_type == "dot-to-dot":
-            dot_to_dot.render(c, page_spec, helpers)
+            dot_to_dot.render(c, page_spec, ctx)
         elif activity_type == "tracing":
-            tracing.render(c, page_spec, helpers)
+            tracing.render(c, page_spec, ctx)
         else:
             logger.error(f"Unknown activity type: {activity_type}")
             return False
