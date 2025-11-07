@@ -12,12 +12,52 @@ from reportlab.graphics import renderPDF
 from reportlab.lib.utils import ImageReader
 from svglib.svglib import svg2rlg
 
-from scripts.assets import normalize_slug
 from scripts.drawing.shapes import get_renderer
 from scripts.helpers import RenderContext, constants
+from scripts.assets import normalize_slug
 
 
 logger = logging.getLogger(__name__)
+
+
+_COMMON_ANIMAL_SLUGS = {
+    "alpaca": "alpaca",
+    "bear": "bear-head",
+    "bear-head": "bear-head",
+    "bunny": "rabbit",
+    "butterfly": "butterfly",
+    "cat": "cat",
+    "chicken": "chicken",
+    "chick": "chicken",
+    "chipmunk": "squirrel",
+    "cow": "cow",
+    "duck": "duck",
+    "deer": "deer",
+    "dolphin": "dolphin",
+    "elephant": "elephant",
+    "fox": "fox",
+    "giraffe": "giraffe",
+    "goat": "goat",
+    "hedgehog": "hedgehog",
+    "horse": "horse",
+    "kangaroo": "kangaroo",
+    "lion": "lion",
+    "meerkat": "meerkat",
+    "monkey": "monkey",
+    "octopus": "octopus",
+    "owl": "owl",
+    "pig": "pig",
+    "pigeon": "pigeon",
+    "rabbit": "rabbit",
+    "raccoon": "raccoon",
+    "sheep": "sheep",
+    "squirrel": "squirrel",
+    "teddy": "teddy-bear",
+    "teddy-bear": "teddy-bear",
+    "tiger": "tiger",
+    "turtle": "sea-turtle",
+    "wolf": "wolf",
+}
 
 
 def _draw_shape_from_library(c: Canvas, x: float, y: float, shape_name: str, size: float = 50) -> None:
@@ -142,8 +182,29 @@ def _draw_matching_item(
         elif item_type == "animal":
             # Handle animal type - Claude uses either "name" or "animal" as key
             animal_name = item.get("name") or item.get("animal", "circle")
-            logger.debug(f"Drawing animal '{animal_name}'")
-            _draw_shape(c, ctx, x, y, animal_name, size)
+            slug = normalize_slug(animal_name)
+            logger.debug(f"Drawing animal '{animal_name}' (slug '{slug}')")
+
+            candidate_slugs = [slug]
+            mapped_slug = _COMMON_ANIMAL_SLUGS.get(slug)
+            if mapped_slug:
+                mapped_slug = normalize_slug(mapped_slug)
+                if mapped_slug not in candidate_slugs:
+                    candidate_slugs.append(mapped_slug)
+
+            for asset_slug in candidate_slugs:
+                asset_path = ctx.asset_lookup(asset_slug)
+                if asset_path:
+                    logger.debug(
+                        f"Found animal asset '{asset_slug}' for '{animal_name}' at {asset_path}"
+                    )
+                    _draw_svg_asset(c, ctx, x, y, asset_slug, size)
+                    break
+            else:
+                logger.debug(
+                    f"Animal asset not found for '{animal_name}', falling back to generic handling"
+                )
+                _draw_svg_asset(c, ctx, x, y, animal_name, size)
         elif item_type == "number":
             c.setFont("Helvetica-Bold", 36)
             c.drawCentredString(x, y - 12, str(item.get("value", "1")))
