@@ -94,6 +94,8 @@ class ClaudeProcessor(Component):
     description = "Processes pages through Claude API with variety tracking"
     icon = "brain"
 
+    MAX_CONSECUTIVE_API_FAILURES = 2
+
     inputs = [
         DataInput(
             name="pages",
@@ -145,6 +147,12 @@ class ClaudeProcessor(Component):
             display_name="Dummy Output Directory",
             info="Optional folder to store Claude JSON runs for Langflow tests. Leave blank to skip.",
             value="/tmp/claude_runs"
+        ),
+        MessageTextInput(
+            name="use_latest_dummy_run",
+            display_name="Use Latest Dummy Run",
+            info="Set to true to replay the most recent dummy JSON and skip live Claude calls.",
+            value="false"
         ),
     ]
 
@@ -200,6 +208,40 @@ class ClaudeProcessor(Component):
             return None
 
         return base_path
+
+    def _use_latest_dummy_run(self) -> bool:
+        raw_value = getattr(self, "use_latest_dummy_run", "")
+        if raw_value is None:
+            return False
+
+        normalized = str(raw_value).strip().lower()
+        return normalized in {"true", "1", "yes", "y", "on"}
+
+    def _load_latest_dummy_run(self) -> Tuple[List[Data], Optional[Path]]:
+        """Load the most recent dummy JSON file, returning processed pages."""
+
+        directory = self._dummy_output_directory()
+        if directory is None:
+            self.log("Dummy playback requested but no dummy_output_dir is configured.")
+            return [], None
+
+        latest = OutputDumper.get_latest_dump(directory)
+        if latest is None:
+            self.log(f"Dummy playback requested but no files found in {directory}.")
+            return [], None
+
+        payload = OutputDumper.read_dump(latest)
+        if not payload or "pages" not in payload:
+            self.log(f"Dummy playback failed - '{latest}' is missing a 'pages' list.")
+            return [], None
+
+        pages = payload.get("pages", [])
+        processed = [Data(data=item) for item in pages]
+
+        self.log(f"Dummy playback mode active. Loaded {len(processed)} page(s) from {latest}.")
+        print(f"📁 Using dummy run from {latest}")
+
+        return processed, latest
 
     # ---------- Utility: page/topic limits ----------
     @staticmethod
@@ -437,6 +479,20 @@ GLOBAL STYLE REQUIREMENTS:
         self.log("> First page preview: {}\n".format(preview))
         print("> Pages type: {}, First page: {}".format(type(self.pages), preview))
 
+        if self._use_latest_dummy_run():
+            processed, source_path = self._load_latest_dummy_run()
+            if processed:
+                return self._finalize_run(
+                    processed=processed,
+                    per_topic_counts={},
+                    per_topic_labels={},
+                    skipped_due_to_limits=[],
+                    dump_results=False,
+                    existing_dummy_path=source_path
+                )
+
+            self.log("Proceeding with live Claude calls because dummy playback data was unavailable.")
+
         # ========== PHASE 3: PARSE LIMITS ==========
         total_limit = self._max_total_pages()
         if total_limit:
@@ -447,6 +503,7 @@ GLOBAL STYLE REQUIREMENTS:
         per_topic_labels = {}
         skipped_due_to_limits = []
         total_processed = 0
+        consecutive_failures = 0
 
         # ========== PHASE 4: PROCESS LOOP ==========
         for idx, page_data_obj in enumerate(self.pages):
@@ -479,9 +536,6 @@ GLOBAL STYLE REQUIREMENTS:
                 skipped_due_to_limits.append(skip_msg)
                 continue
 
-            per_topic_counts[normalized_type] = current_count + 1
-            total_processed += 1
-
             status_msg = "Processing page {}/{} - {} ({})".format(idx + 1, total, page_type, theme)
             print("\n" + "=" * 50)
             print("=> {}".format(status_msg))
@@ -491,6 +545,7 @@ GLOBAL STYLE REQUIREMENTS:
             # REFACTORED: Phase 2 - get_prompt_for_type now returns (prompt, selected_item)
             prompt, selected_item = self.get_prompt_for_type(page_type, theme, page_number)
 
+            success = False
             try:
                 parsed, raw = self._call_with_retry(prompt, self.anthropic_api_key, page_number, retries=2)
 
@@ -507,6 +562,10 @@ GLOBAL STYLE REQUIREMENTS:
                         **parsed
                     }
                     processed.append(Data(data=merged))
+                    per_topic_counts[normalized_type] = current_count + 1
+                    total_processed += 1
+                    consecutive_failures = 0
+                    success = True
                 else:
                     self.log("ERROR Page {}: No JSON found after retries".format(page_number))
                     processed.append(Data(data={
@@ -514,6 +573,7 @@ GLOBAL STYLE REQUIREMENTS:
                         'error': 'No JSON found',
                         'raw_response': (raw or '')[:400]
                     }))
+                    consecutive_failures += 1
 
                 time.sleep(0.3)
 
@@ -521,13 +581,53 @@ GLOBAL STYLE REQUIREMENTS:
                 self.status = "Error on page {}: {}".format(page_number, e)
                 self.log("ERROR on page {}: {}".format(page_number, e))
                 processed.append(Data(data={**page, 'error': str(e)}))
+                consecutive_failures += 1
+
+            if not success and consecutive_failures >= self.MAX_CONSECUTIVE_API_FAILURES:
+                abort_msg = (
+                    f"Aborting Claude API calls after {consecutive_failures} consecutive failure(s)."
+                )
+                self.log(abort_msg)
+                print(abort_msg)
+
+                for remaining in self.pages[idx + 1:]:
+                    remaining_page = remaining.data
+                    processed.append(Data(data={
+                        **remaining_page,
+                        'error': 'Skipped due to consecutive Claude API failures'
+                    }))
+
+                break
+
+        return self._finalize_run(
+            processed=processed,
+            per_topic_counts=per_topic_counts,
+            per_topic_labels=per_topic_labels,
+            skipped_due_to_limits=skipped_due_to_limits,
+            dump_results=True
+        )
+
+    def _finalize_run(
+        self,
+        processed: List[Data],
+        per_topic_counts: Dict[str, int],
+        per_topic_labels: Dict[str, str],
+        skipped_due_to_limits: List[str],
+        dump_results: bool = True,
+        existing_dummy_path: Optional[Path] = None
+    ) -> List[Data]:
+        """Shared finalization logic for both live and dummy playback runs."""
 
         processed.sort(key=lambda x: x.data.get('pageNumber', 0))
 
-        # ========== PHASE 5: FINALIZE ==========
-        dummy_path = self._dump_processed_output(processed)
-        if dummy_path:
-            self.log("Dummy JSON saved to {}".format(dummy_path))
+        dummy_path = existing_dummy_path
+        if dump_results:
+            generated_path = self._dump_processed_output(processed)
+            if generated_path:
+                dummy_path = generated_path
+                self.log("Dummy JSON saved to {}".format(generated_path))
+        elif dummy_path:
+            self.log(f"Replayed output from existing dummy JSON: {dummy_path}")
 
         if per_topic_counts:
             self.log("Pages generated per topic/type:")
@@ -546,11 +646,9 @@ GLOBAL STYLE REQUIREMENTS:
         self.log("GENERATION COMPLETE - SUMMARY")
         self.log("=" * 60)
         self.log("Total pages generated: {}".format(len(processed)))
-        # REFACTORED: Phase 5 - Use SessionLogger for session info
         summary = self.session_logger.get_summary()
         self.log("Session duration: {:.2f} seconds".format(summary['duration_seconds']))
         self.log("\nVariety used per activity type:")
-        # REFACTORED: Phase 4 - Use VarietyTracker
         for activity_type, items in self.variety_tracker.get_summary().items():
             if items:
                 self.log("  {}: {}".format(activity_type, ', '.join(items)))
@@ -559,8 +657,10 @@ GLOBAL STYLE REQUIREMENTS:
         log_file = self.save_detailed_logs()
 
         final_msg = "Completed {} pages with variety! Logs: {}".format(len(processed), log_file)
-        if dummy_path:
+        if dump_results and dummy_path:
             final_msg += " | Dummy JSON: {}".format(dummy_path)
+        elif not dump_results and dummy_path:
+            final_msg += " | Dummy Source: {}".format(dummy_path)
         if skipped_due_to_limits:
             final_msg += " | Skipped {} due to limits".format(len(skipped_due_to_limits))
         print("\n" + "=" * 60)
