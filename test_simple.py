@@ -100,7 +100,7 @@ def test_counting_combinations():
     print("TEST: Counting Activity Variety")
     print("="*60)
 
-    count_options = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    count_options = list(range(0, 16))
     item_options = ['circle', 'star', 'heart', 'square', 'triangle', 'apple', 'flower', 'car', 'ball', 'balloon', 'butterfly', 'fish']
 
     all_combinations = [f"{count}-{item}" for count in count_options for item in item_options]

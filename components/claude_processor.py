@@ -68,6 +68,8 @@ class ClaudeProcessor(Component):
     description = "Processes pages through Claude API with variety tracking"
     icon = "brain"
 
+    MAX_CONSECUTIVE_API_FAILURES = 2
+
     inputs = [
         DataInput(
             name="pages",
@@ -117,6 +119,12 @@ class ClaudeProcessor(Component):
             display_name="Dummy Output Directory",
             info="Optional folder for test JSON dumps",
             value="/tmp/claude_runs"
+        ),
+        MessageTextInput(
+            name="use_latest_dummy_run",
+            display_name="Use Latest Dummy Run",
+            info="Set to true to replay the most recent dummy JSON and skip live Claude calls.",
+            value="false"
         ),
     ]
 

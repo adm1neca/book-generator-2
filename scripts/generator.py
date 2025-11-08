@@ -1,10 +1,8 @@
 """Core activity booklet generator."""
 
 from __future__ import annotations
-
-import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -12,10 +10,12 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from scripts.assets import load_assets, normalize_slug
+from scripts.helpers import Primitives, RenderContext
 from scripts.pages import coloring, counting, dot_to_dot, matching, maze, tracing
 
 PageSpec = Dict[str, Any]
-PageRenderer = Callable[[canvas.Canvas, PageSpec, Dict[str, Any]], None]
+# Updated signature to use RenderContext instead of Dict
+PageRenderer = Callable[[canvas.Canvas, PageSpec, RenderContext], None]
 
 
 def kid_stroke(width: float, height: float) -> int:
@@ -82,19 +82,25 @@ class ActivityBookletGenerator:
     # ------------------------------------------------------------------
     # Page rendering orchestration
     # ------------------------------------------------------------------
-    def _page_helpers(self) -> Dict[str, Any]:
-        return {
-            "draw_border": self.draw_border,
-            "draw_title": self.draw_title,
-            "draw_instruction": self.draw_instruction,
-            "prep_kid_lines": self.prep_kid_lines,
-            "kid_stroke": self.kid_stroke,
-            "generate_dot_positions": self.generate_dot_positions,
-            "width": self.width,
-            "height": self.height,
-            "margin": self.margin,
-            "asset_lookup": self.lookup_asset,
-        }
+    def _page_helpers(self) -> RenderContext:
+        """
+        Create typed RenderContext for page rendering.
+
+        Replaces the old untyped dict-based helpers.
+        """
+        return RenderContext(
+            canvas=self.c,
+            width=self.width,
+            height=self.height,
+            margin=self.margin,
+            draw_border=self.draw_border,
+            draw_title=self.draw_title,
+            draw_instruction=self.draw_instruction,
+            prep_kid_lines=self.prep_kid_lines,
+            kid_stroke_width=self.kid_stroke(),
+            generate_dot_positions=self.generate_dot_positions,
+            asset_lookup=self.lookup_asset,
+        )
 
     def lookup_asset(self, name: str | None) -> Path | None:
         if not name:
@@ -124,33 +130,74 @@ class ActivityBookletGenerator:
     ) -> List[Tuple[float, float]]:
         center_x = self.width / 2
         center_y = self.height / 2
-        dots: List[Tuple[float, float]] = []
 
-        if shape == "star":
-            for i in range(num_dots):
-                angle = (i / num_dots) * 2 * math.pi
-                radius = 110 if i % 2 == 0 else 60
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                dots.append((x, y))
-        elif shape == "circle":
-            for i in range(num_dots):
-                angle = (i / num_dots) * 2 * math.pi
-                radius = 110
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                dots.append((x, y))
-        elif shape == "heart":
-            for i in range(num_dots):
-                t = (i / num_dots) * 2 * math.pi
-                x = center_x + 60 * (16 * math.sin(t) ** 3) / 16
-                y = center_y + 60 * (
-                    13 * math.cos(t)
-                    - 5 * math.cos(2 * t)
-                    - 2 * math.cos(3 * t)
-                    - math.cos(4 * t)
-                ) / 13
-                dots.append((x, y))
+        raw_key = str(shape or "circle").lower().strip()
+        normalized_key = raw_key.replace("_", "-").replace(" ", "-")
+
+        alias_map: Dict[str, str] = {
+            # Flower variations
+            "flowers": "flower",
+            "flower-outline": "flower",
+            "flower-shape": "flower",
+            "blossom": "flower",
+            "blossom-outline": "flower",
+            "daisy": "flower",
+            "sunflower": "flower",
+            "tulip": "flower",
+            # Fish variations / water creatures
+            "goldfish": "fish",
+            "clownfish": "fish",
+            "koi": "fish",
+            "sine-wave": "fish",
+            "wave": "fish",
+            "dolphin": "fish",
+            "whale": "fish",
+            # Tree variations
+            "pine-tree": "tree",
+            "pine": "tree",
+            "evergreen": "tree",
+            "fir-tree": "tree",
+            "spruce": "tree",
+            "christmas-tree": "tree",
+            "tree-outline": "tree",
+            # Generic fallbacks
+            "oval": "circle",
+            "round": "circle",
+        }
+
+        shape_key = alias_map.get(normalized_key, normalized_key)
+
+        generators: Dict[str, Callable[[float, float, int], List[Tuple[float, float]]]] = {
+            "star": Primitives.generate_dot_positions_star,
+            "circle": Primitives.generate_dot_positions_circle,
+            "heart": Primitives.generate_dot_positions_heart,
+            "square": Primitives.generate_dot_positions_square,
+            "triangle": Primitives.generate_dot_positions_triangle,
+            "diamond": Primitives.generate_dot_positions_diamond,
+            "house": Primitives.generate_dot_positions_house,
+            "tree": Primitives.generate_dot_positions_tree,
+            "flower": Primitives.generate_dot_positions_flower,
+            "butterfly": Primitives.generate_dot_positions_butterfly,
+            "fish": Primitives.generate_dot_positions_fish,
+            "apple": Primitives.generate_dot_positions_apple,
+        }
+
+        generator = generators.get(shape_key)
+
+        try:
+            requested_dots = int(num_dots)
+        except (TypeError, ValueError):
+            requested_dots = 0
+        target_dots = max(requested_dots, 3)
+
+        if generator is None:
+            generator = Primitives.generate_dot_positions_circle
+            shape_key = "circle"
+
+        dots = generator(center_x, center_y, target_dots)
+        if not dots:
+            dots = Primitives.generate_dot_positions_circle(center_x, center_y, target_dots)
+
         return dots
 
     def save(self) -> None:

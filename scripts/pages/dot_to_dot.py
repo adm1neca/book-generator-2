@@ -8,6 +8,8 @@ from typing import Any, Dict, Iterable, Tuple
 from reportlab.lib import colors
 from reportlab.pdfgen.canvas import Canvas
 
+from scripts.helpers import RenderContext, constants
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,20 +47,28 @@ def _draw_shape_outline_dashed(c: Canvas, shape: str, dots: Iterable[Dot]) -> No
     c.restoreState()
 
 
-def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> None:
+def render(c: Canvas, page_spec: Dict[str, Any], ctx: RenderContext) -> None:
+    """
+    Render a dot-to-dot activity page.
+
+    Refactored to use typed RenderContext and constants.
+    """
     title = page_spec.get("title", "Connect the Dots")
     shape = page_spec.get("shape", "star")
     logger.info(f"Rendering dot-to-dot page: {title}, shape: {shape}")
 
-    helpers["draw_border"]()
-    helpers["draw_title"](title)
+    # Draw page frame
+    ctx.draw_border()
+    ctx.draw_title(title, constants.OFFSET_TITLE)
 
+    # Get configuration
     dots_count = page_spec.get("dots", 12)
-    helpers["draw_instruction"](f"Connect 1 to {dots_count}")
+    ctx.draw_instruction(f"Connect 1 to {dots_count}", constants.OFFSET_INSTRUCTION)
 
+    # Generate dot positions if not provided
     if "dot_positions" not in page_spec:
         logger.debug(f"Generating dot positions for shape '{shape}' with {dots_count} dots")
-        page_spec["dot_positions"] = helpers["generate_dot_positions"](shape, dots_count)
+        page_spec["dot_positions"] = ctx.generate_dot_positions(shape, dots_count)
 
     dots: Iterable[Dot] = page_spec["dot_positions"]
     dot_list = list(dots)
@@ -70,15 +80,25 @@ def render(c: Canvas, page_spec: Dict[str, Any], helpers: Dict[str, Any]) -> Non
     # Reset to solid line and black for dots
     c.setDash()  # Remove dash pattern
     c.setStrokeColor(colors.black)
-    c.setFillColor(colors.black)
-    c.setLineWidth(1)
-    c.setFont("Helvetica-Bold", 12)
+    c.setFillColor(colors.white)  # White fill for better visibility
+    c.setLineWidth(2)
 
-    # Draw numbered dots
+    # Use larger font for numbers - easier for kids to see
+    c.setFont("Helvetica-Bold", 18)
+
+    # Draw numbered dots - MUCH LARGER for kids
+    circle_radius = 14  # Larger circles (was 4)
+
+    logger.debug(f"Drawing dots with radius={circle_radius}, font=18pt")
+
     for i, (x, y) in enumerate(dot_list[:dots_count], start=1):
-        # Draw filled circle for dot
-        c.circle(x, y, 4, stroke=1, fill=1)
-        # Draw number above dot
-        c.drawCentredString(x, y + 10, str(i))
+        # Draw large hollow circle with thick border
+        c.circle(x, y, circle_radius, stroke=1, fill=1)
+
+        # Draw number inside the circle (centered)
+        c.setFillColor(colors.black)
+        # Adjust y position to center text vertically in circle
+        c.drawCentredString(x, y - 6, str(i))
+        c.setFillColor(colors.white)  # Reset fill color
 
     logger.info("Dot-to-dot page rendering complete")
