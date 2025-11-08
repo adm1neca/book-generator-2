@@ -124,14 +124,14 @@ class TestAsyncPageProcessorBasics:
         assert "description" in result.page_data
 
     @pytest.mark.asyncio
-    async def test_process_calls_async_api(self, async_processor, mock_async_api_client):
-        """Test that async API client is called."""
+    async def test_process_calls_async_api(self, async_processor, mock_retry_handler):
+        """Test that async API is called through retry handler."""
         page = {"type": "coloring", "theme": "animals", "pageNumber": 1}
 
         await async_processor.process(page)
 
-        # Verify async API was called
-        assert mock_async_api_client.send_message_async.called
+        # Verify retry handler was called (which calls the API)
+        assert mock_retry_handler.call_with_retry_async.called
 
     @pytest.mark.asyncio
     async def test_handles_api_failure(self, async_processor, mock_retry_handler):

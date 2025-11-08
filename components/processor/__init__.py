@@ -22,6 +22,8 @@ from .logger_facade import LoggerFacade
 from .limiter import PageLimiter, LimiterConfig
 from .page_processor import PageProcessor, ProcessorConfig, ProcessedPage
 from .pipeline import ProcessingPipeline, PipelineConfig, PipelineResult
+from .async_page_processor import AsyncPageProcessor
+from .async_pipeline import AsyncProcessingPipeline, AsyncPipelineConfig, AsyncPipelineResult
 
 __all__ = [
     "LoggerFacade",
@@ -33,6 +35,10 @@ __all__ = [
     "ProcessingPipeline",
     "PipelineConfig",
     "PipelineResult",
+    "AsyncPageProcessor",
+    "AsyncProcessingPipeline",
+    "AsyncPipelineConfig",
+    "AsyncPipelineResult",
 ]
 
 __version__ = "1.0.0"
